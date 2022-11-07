@@ -16,6 +16,6 @@
 
 """Models."""
 
-from .particle_posterior_model import *
-from .prior_model import *
-from .variational_posterior_model import *
+from bayestorch.models.particle_posterior_model import *
+from bayestorch.models.prior_model import *
+from bayestorch.models.variational_posterior_model import *

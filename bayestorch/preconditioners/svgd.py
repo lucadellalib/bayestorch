@@ -40,7 +40,27 @@ class SVGD(Optimizer):
 
     Examples
     --------
-
+    >>> import torch
+    >>> from torch import nn
+    >>>
+    >>> from bayestorch.kernels import RBFSteinKernel
+    >>> from bayestorch.preconditioners import SVGD
+    >>>
+    >>>
+    >>> num_particles = 5
+    >>> batch_size = 10
+    >>> in_features = 4
+    >>> out_features = 2
+    >>> models = nn.ModuleList(
+    ...     [nn.Linear(in_features, out_features) for _ in range(num_particles)]
+    ... )
+    >>> kernel = RBFSteinKernel()
+    >>> preconditioner = SVGD(models.parameters(), kernel, num_particles)
+    >>> input = torch.rand(batch_size, in_features)
+    >>> outputs = torch.cat([model(input) for model in models])
+    >>> loss = outputs.sum()
+    >>> loss.backward()
+    >>> preconditioner.step()
 
     """
 
@@ -48,22 +68,22 @@ class SVGD(Optimizer):
     def __init__(
         self,
         params: "Union[Iterable[Tensor], Iterable[Dict[str, Any]]]",
+        kernel: "Callable[[Tensor], Tuple[Tensor, Tensor]]",
         num_particles: "int",
-        stein_kernel: "Callable[[Tensor], Tuple[Tensor, Tensor]]",
     ) -> "None":
         """Initialize the object.
 
         Parameters
         ----------
         params:
-            The parameters to precondition (already
-            replicated `num_particles` times).
+            The parameters to precondition. The total number of
+            parameters must be a multiple of `num_particles`.
+        kernel:
+            The kernel, i.e. a callable that receives as an argument the
+            particles and returns the corresponding kernels and kernel
+            gradients.
         num_particles:
             The number of particles.
-        stein_kernel:
-            The Stein kernel, i.e. a callable that receives as an argument
-            the particles and returns the corresponding kernels and kernel
-            gradients.
 
         Raises
         ------
@@ -71,38 +91,62 @@ class SVGD(Optimizer):
             If an invalid argument value is given.
 
         """
-        if num_particles < 1 or not float(num_particles).is_integer():
-            raise ValueError(
-                f"`num_particles` ({num_particles}) must be in the integer interval [1, inf)"
-            )
+        super().__init__(params, {"kernel": kernel, "num_particles": num_particles})
+        self.kernel = kernel
+        self.num_particles = num_particles = int(num_particles)
 
-        super().__init__(params, {})
-        self.num_particles = int(num_particles)
-        self.stein_kernel = stein_kernel
+        # Check consistency between number of parameters
+        # and number of particles for each group
+        for group in self.param_groups:
+            params = group["params"]
+            num_particles = group["num_particles"]
+
+            if num_particles < 1 or not float(num_particles).is_integer():
+                raise ValueError(
+                    f"`num_particles` ({num_particles}) must be in the integer interval [1, inf)"
+                )
+
+            # Extract particles
+            particles = nn.utils.parameters_to_vector(params)
+
+            if particles.numel() % num_particles != 0:
+                raise ValueError(
+                    f"Total number of parameters ({particles.numel()}) must "
+                    f"be a multiple of `num_particles` ({num_particles})"
+                )
 
     # override
     @torch.no_grad()
     def step(self) -> "None":
         for group in self.param_groups:
             params = group["params"]
+            kernel = group["kernel"]
+            num_particles = group["num_particles"]
 
             # Extract particles
-            particles = nn.utils.parameters_to_vector(params).reshape(
-                self.num_particles, -1
-            )
+            particles = nn.utils.parameters_to_vector(params).reshape(num_particles, -1)
 
             # Extract particle gradients
-            particle_grads = nn.utils.parameters_to_vector(
-                (param.grad for param in params)
-            ).reshape(self.num_particles, -1)
+            particle_grads = []
+            for param in params:
+                grad = param.grad
+                if grad is None:
+                    raise RuntimeError("Gradient of some parameters is None")
+                particle_grads.append(grad)
+            particle_grads = nn.utils.parameters_to_vector(particle_grads).reshape(
+                num_particles, -1
+            )
 
             # Compute kernels and kernel gradients
-            kernels, kernel_grads = self.stein_kernel(particles)
+            kernels, kernel_grads = kernel(particles)
 
-            # Compute total gradient
-            particle_grads = kernels @ particle_grads  # Attractive gradients
-            particle_grads -= kernel_grads  # Repulsive gradients
-            particle_grads /= self.num_particles
+            # Attractive gradients (already divided by `num_particles` => use `NLUPLoss` with reduction="mean")
+            particle_grads = kernels @ particle_grads
+
+            # Repulsive gradients
+            particle_grads -= kernel_grads / num_particles
+
+            # Flatten
             particle_grads = particle_grads.flatten()
 
             # Inject particle gradients

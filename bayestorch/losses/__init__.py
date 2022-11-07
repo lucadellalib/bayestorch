@@ -16,5 +16,5 @@
 
 """Losses."""
 
-from .elbo_loss import *
-from .nlup_loss import *
+from bayestorch.losses.elbo_loss import *
+from bayestorch.losses.nlup_loss import *

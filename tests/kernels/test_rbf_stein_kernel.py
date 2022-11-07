@@ -30,6 +30,7 @@ def test_rbf_stein_kernel() -> "None":
     kernel = RBFSteinKernel()
     particles = torch.rand(num_particles, particle_size)
     kernels, kernel_grads = kernel(particles)
+    print(kernel)
     print(f"Number of particles: {num_particles}")
     print(f"Particle size: {particle_size}")
     print(f"Kernels shape: {kernels.shape}")

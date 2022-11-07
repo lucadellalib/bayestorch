@@ -16,4 +16,5 @@
 
 """Distributions."""
 
-from .log_scale_normal import *
+from bayestorch.distributions.log_scale_normal import *
+from bayestorch.distributions.softplus_inv_scale_normal import *

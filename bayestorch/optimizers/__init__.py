@@ -14,6 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Kernels."""
+"""Optimizers."""
 
-from bayestorch.kernels.rbf_stein_kernel import *
+from bayestorch.optimizers.sghmc import *
+from bayestorch.optimizers.sgld import *

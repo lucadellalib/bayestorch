@@ -32,6 +32,7 @@ def test_elbo_loss() -> "None":
     kl_divs = torch.rand(num_mc_samples)
     criterion = ELBOLoss(reduction="none")
     loss = criterion(log_likelihoods, kl_divs, num_train_batches)
+    print(criterion)
     print(f"Number of Monte Carlo samples: {num_mc_samples}")
     print(f"Number of train batches: {num_train_batches}")
     print(f"Batch size: {batch_size}")

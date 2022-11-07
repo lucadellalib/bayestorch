@@ -46,6 +46,8 @@ class RBFSteinKernel:
     --------
     >>> import torch
     >>>
+    >>> from bayestorch.kernels import RBFSteinKernel
+    >>>
     >>>
     >>> num_particles = 5
     >>> particle_size = 1000
@@ -70,11 +72,16 @@ class RBFSteinKernel:
         Returns
         -------
             - The kernels, shape: ``[N, N]``;
-            - the kernel gradients w.r.t. to the
-              particles, shape: ``[N, D]``.
+            - the kernel gradients with respect
+              to the particles, shape: ``[N, D]``.
 
         """
-        num_particles = len(particles)
+        num_particles = particles.shape[0]
+        return self._forward(particles, num_particles)
+
+    @staticmethod
+    @torch.jit.script
+    def _forward(particles: "Tensor", num_particles: "int") -> "Tuple[Tensor, Tensor]":
         deltas = torch.cdist(particles, particles)
         squared_deltas = deltas**2
         bandwidth = squared_deltas.median() / math.log(num_particles)

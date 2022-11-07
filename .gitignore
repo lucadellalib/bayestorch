@@ -119,3 +119,6 @@ dmypy.json
 
 # Visual Studio Code
 .vscode/
+
+# Data
+*/data/*

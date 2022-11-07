@@ -21,8 +21,8 @@
 import pytest
 import torch
 from torch import nn
-from torch.distributions import Normal
 
+from bayestorch.distributions import LogScaleNormal
 from bayestorch.models import ParticlePosteriorModel
 
 
@@ -32,15 +32,19 @@ def test_particle_posterior_model() -> "None":
     in_features = 4
     out_features = 2
     model = nn.Linear(in_features, out_features)
+    num_parameters = sum(parameter.numel() for parameter in model.parameters())
     model = ParticlePosteriorModel(
         model,
-        prior_builder=Normal,
-        prior_kwargs={"loc": 0.0, "scale": 0.1},
+        prior_builder=LogScaleNormal,
+        prior_kwargs={
+            "loc": torch.zeros(num_parameters),
+            "log_scale": torch.full((num_parameters,), -1.0),
+        },
         num_particles=num_particles,
     )
-    print(model)
     input = torch.rand(batch_size, in_features)
     outputs, log_priors = model(input)
+    print(model)
     print(f"Number of particles: {num_particles}")
     print(f"Batch size: {batch_size}")
     print(f"Input shape: {(batch_size, in_features)}")

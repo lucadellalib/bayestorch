@@ -18,21 +18,22 @@
 
 import copy
 import logging
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, TypeVar
 
-import torch
 from torch import Tensor, nn
-from torch.distributions import Distribution, Independent, kl_divergence
-from torch.nn import Parameter
+from torch.distributions import Distribution, kl_divergence
+from torch.nn import Module, Parameter
 
-from .prior_model import PriorModel
-from .utils import nested_stack
+from bayestorch.models.prior_model import PriorModel
+from bayestorch.models.utils import nested_stack
 
 
 __all__ = [
     "VariationalPosteriorModel",
 ]
 
+
+_T = TypeVar("_T", bound="VariationalPosteriorModel")
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +53,9 @@ class VariationalPosteriorModel(PriorModel):
     --------
     >>> import torch
     >>> from torch import nn
-    >>> from torch.distributions import Normal
+    >>>
+    >>> from bayestorch.distributions import LogScaleNormal, SoftplusInvScaleNormal
+    >>> from bayestorch.models import VariationalPosteriorModel
     >>>
     >>>
     >>> num_mc_samples = 5
@@ -60,26 +63,36 @@ class VariationalPosteriorModel(PriorModel):
     >>> in_features = 4
     >>> out_features = 2
     >>> model = nn.Linear(in_features, out_features)
+    >>> num_parameters = sum(parameter.numel() for parameter in model.parameters())
     >>> model = VariationalPosteriorModel(
-    >>>     model,
-    >>>     prior_builder=Normal,
-    >>>     prior_kwargs={"loc": 0.0, "scale": 0.1},
-    >>>     posterior_builder=Normal,
-    >>>     posterior_kwargs={"loc": 0.0, "scale": 0.3},
-    >>> )
+    ...     model,
+    ...     prior_builder=LogScaleNormal,
+    ...     prior_kwargs={
+    ...         "loc": torch.zeros(num_parameters),
+    ...         "log_scale": torch.full((num_parameters,), -1.0),
+    ...     },
+    ...     posterior_builder=SoftplusInvScaleNormal,
+    ...     posterior_kwargs={
+    ...         "loc": torch.zeros(num_parameters, requires_grad=True),
+    ...         "softplus_inv_scale": torch.full((num_parameters,), -7.0, requires_grad=True),
+    ...     },
+    ... )
     >>> input = torch.rand(batch_size, in_features)
     >>> outputs, kl_divs = model(
-    >>>     input,
-    >>>     num_mc_samples=num_mc_samples,
-    >>>     exact_kl_div=False,
-    >>> )
+    ...     input,
+    ...     num_mc_samples=num_mc_samples,
+    ...     exact_kl_div=False,
+    ... )
 
     """
+
+    posterior: "Distribution"
+    """The posterior distribution."""
 
     # override
     def __init__(
         self,
-        model: "nn.Module",
+        model: "Module",
         prior_builder: "Callable[..., Distribution]",
         prior_kwargs: "Dict[str, Any]",
         posterior_builder: "Callable[..., Distribution]",
@@ -96,11 +109,17 @@ class VariationalPosteriorModel(PriorModel):
             keyword arguments and returns a prior.
         prior_kwargs:
             The keyword arguments to pass to the prior builder.
+            Tensor arguments are internally registered as
+            parameters if their `requires_grad` attribute
+            is True, as persistent buffers otherwise.
         posterior_builder:
             The posterior builder, i.e. a callable that receives
             keyword arguments and returns a posterior.
         posterior_kwargs:
             The keyword arguments to pass to the posterior builder.
+            Tensor arguments are internally registered as
+            parameters if their `requires_grad` attribute
+            is True, as persistent buffers otherwise.
 
         Raises
         ------
@@ -110,34 +129,17 @@ class VariationalPosteriorModel(PriorModel):
         """
         super().__init__(model, prior_builder, prior_kwargs)
         self.posterior_builder = posterior_builder
-        self.posterior_kwargs = posterior_kwargs
+        self.posterior_kwargs = posterior_kwargs = {
+            k: v for k, v in posterior_kwargs.items()
+        }  # Avoid side effects
 
-        # Extract particle
-        # particle = model parameters flattened into a 1D vector
-        particle = nn.utils.parameters_to_vector(model.parameters())
+        # Build prior
+        self.posterior = self._build_distribution(
+            "posterior", posterior_builder, posterior_kwargs
+        )
 
-        # Build posterior (WITH gradient propagation)
-        for k, v in posterior_kwargs.items():
-            parameter = None
-            if isinstance(v, (int, float)):
-                parameter = Parameter(torch.full_like(particle, v))
-            elif isinstance(v, Tensor):
-                parameter = v.to(particle.device)
-            if parameter is not None:
-                self.register_parameter(f"posterior_{k}", parameter)
-                posterior_kwargs[k] = parameter
-        self._posterior = posterior_builder(**posterior_kwargs)
-
-        # Adjust posterior event shape
-        batch_shape = self._posterior.batch_shape
-        if len(batch_shape) > 0:
-            self._posterior = Independent(self._posterior, len(batch_shape))
-        event_shape = self._posterior.event_shape
-        if event_shape != particle.shape:
-            raise ValueError(
-                f"Posterior event size ({event_shape.numel()}) must be equal to "
-                f"the number of model parameters ({particle.shape.numel()}) "
-            )
+        # Log Kullback-Leibler divergence warning only once
+        self._log_kl_div_warning = True
 
     # override
     def named_parameters(
@@ -167,6 +169,17 @@ class VariationalPosteriorModel(PriorModel):
         return super().load_state_dict(*args, strict=False, **kwargs)
 
     # override
+    def to(self, *args: "Any", **kwargs: "Any") -> "_T":
+        super().to(*args, **kwargs)
+
+        # Rebuild posterior with parameters on new device
+        self.prior = self._build_distribution(
+            "prior", self.prior_builder, self.prior_kwargs
+        )
+
+        return self
+
+    # override
     def forward(
         self,
         *args: "Any",
@@ -189,8 +202,8 @@ class VariationalPosteriorModel(PriorModel):
             The number of Monte Carlo samples.
         exact_kl_div:
             True to use the exact Kullback-Leibler divergence between
-            parameter posterior and parameter prior (if a closed-form
-            expression exists), False to use Monte Carlo approximation.
+            posterior and prior (if a closed-form expression exists),
+            False to use Monte Carlo approximation.
             For consistency, the scalar returned by the closed-form
             Kullback-Leibler divergence is expanded to a tensor of
             shape: ``[N]``.
@@ -200,8 +213,8 @@ class VariationalPosteriorModel(PriorModel):
         Returns
         -------
             - The outputs, shape of a leaf value: ``[N, *B, *O]``;
-            - the Kullback-Leibler divergences between parameter
-              posterior and parameter prior, shape: ``[N]``.
+            - the Kullback-Leibler divergences between posterior
+              and prior, shape: ``[N]``.
 
         Raises
         ------
@@ -214,32 +227,34 @@ class VariationalPosteriorModel(PriorModel):
                 f"`num_mc_samples` ({num_mc_samples}) must be in the integer interval [1, inf)"
             )
 
-        # Replicate model (one replica for each Monte Carlo sample)
-        models = nn.ModuleList(
-            [self.model]
-            + [copy.deepcopy(self.model) for _ in range(num_mc_samples - 1)]
-        )
-
         # Sample new particles
-        new_particles = self._posterior.rsample((num_mc_samples,))
+        new_particles = self.posterior.rsample((num_mc_samples,))
 
         # Compute Kullback-Leibler divergences
         kl_divs = None
         if exact_kl_div:
             try:
-                kl_divs = kl_divergence(self._posterior, self._prior).expand(
+                kl_divs = kl_divergence(self.posterior, self.prior).expand(
                     num_mc_samples
                 )
             except NotImplementedError:
                 kl_divs = None
-                _LOGGER.warning(
-                    "Could not compute exact Kullback-Leibler divergence, "
-                    "reverting to Monte Carlo approximation"
-                )
+                if self._log_kl_div_warning:
+                    _LOGGER.warning(
+                        "Could not compute exact Kullback-Leibler divergence, "
+                        "reverting to Monte Carlo approximation"
+                    )
+                    self._log_kl_div_warning = False
         if kl_divs is None:
-            log_posteriors = self._posterior.log_prob(new_particles)
-            log_priors = self._prior.log_prob(new_particles)
+            log_posteriors = self.posterior.log_prob(new_particles)
+            log_priors = self.prior.log_prob(new_particles)
             kl_divs = log_posteriors - log_priors
+
+        # Replicate model (one replica for each Monte Carlo sample)
+        models = nn.ModuleList(
+            [self.model]
+            + [copy.deepcopy(self.model) for _ in range(num_mc_samples - 1)]
+        )
 
         # Inject sampled particles
         new_particles = new_particles.flatten()
@@ -262,6 +277,6 @@ class VariationalPosteriorModel(PriorModel):
         return (
             f"{type(self).__name__}"
             f"(model: {self.model}, "
-            f"prior: {self._prior}, "
-            f"posterior: {self._posterior})"
+            f"prior: {self.prior}, "
+            f"posterior: {self.posterior})"
         )

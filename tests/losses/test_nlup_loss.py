@@ -32,6 +32,7 @@ def test_nlup_loss() -> "None":
     log_priors = torch.rand(num_mc_samples)
     criterion = NLUPLoss(reduction="none")
     loss = criterion(log_likelihoods, log_priors, num_train_batches)
+    print(criterion)
     print(f"Number of Monte Carlo samples: {num_mc_samples}")
     print(f"Number of train batches: {num_train_batches}")
     print(f"Batch size: {batch_size}")

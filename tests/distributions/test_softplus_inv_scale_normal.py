@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # ==============================================================================
 # Copyright 2022 Luca Della Libera.
 #
@@ -14,6 +16,21 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Kernels."""
+"""Test inverse softplus scale normal distribution."""
 
-from bayestorch.kernels.rbf_stein_kernel import *
+import pytest
+
+from bayestorch.distributions import SoftplusInvScaleNormal
+
+
+def test_softplus_inv_scale_normal() -> "None":
+    loc = 0.0
+    softplus_inv_scale = -1.0
+    distribution = SoftplusInvScaleNormal(loc, softplus_inv_scale)
+    print(distribution)
+    print(f"Mean: {distribution.mean}")
+    print(f"Standard deviation: {distribution.stddev}")
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])

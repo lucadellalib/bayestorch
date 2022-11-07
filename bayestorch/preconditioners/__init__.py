@@ -16,4 +16,4 @@
 
 """Preconditioners."""
 
-from .svgd import *
+from bayestorch.preconditioners.svgd import *

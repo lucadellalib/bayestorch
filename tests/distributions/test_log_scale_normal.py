@@ -27,7 +27,7 @@ def test_log_scale_normal() -> "None":
     loc = 0.0
     log_scale = -1.0
     distribution = LogScaleNormal(loc, log_scale)
-    print(f"Distribution: {distribution}")
+    print(distribution)
     print(f"Mean: {distribution.mean}")
     print(f"Standard deviation: {distribution.stddev}")
 

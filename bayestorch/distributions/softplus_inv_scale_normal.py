@@ -14,69 +14,72 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Log scale normal distribution."""
+"""Inverse softplus scale normal distribution."""
 
 from typing import Optional, Union
 
+import torch.nn.functional as F
 from torch import Size, Tensor
 from torch.distributions import Normal, constraints
 
 
 __all__ = [
-    "LogScaleNormal",
+    "SoftplusInvScaleNormal",
 ]
 
 
-class LogScaleNormal(Normal):
+class SoftplusInvScaleNormal(Normal):
     """Normal distribution parameterized by location
-    and log scale parameters.
+    and inverse softplus scale parameters.
 
-    Scale parameter is computed as `exp(log_scale)`.
+    Scale parameter is computed as `softplus(softplus_inv_scale)`.
 
     Examples
     --------
-    >>> from bayestorch.distributions import LogScaleNormal
+    >>> from bayestorch.distributions import SoftplusInvScaleNormal
     >>>
     >>>
     >>> loc = 0.0
-    >>> log_scale = -1.0
-    >>> distribution = LogScaleNormal(loc, log_scale)
+    >>> softplus_inv_scale = -1.0
+    >>> distribution = SoftplusInvScaleNormal(loc, softplus_inv_scale)
 
     """
 
     arg_constraints = {
         "loc": constraints.real,
-        "log_scale": constraints.real,
+        "softplus_inv_scale": constraints.real,
     }  # override
 
     # override
     def __init__(
         self,
         loc: "Union[int, float, Tensor]",
-        log_scale: "Union[int, float, Tensor]",
+        softplus_inv_scale: "Union[int, float, Tensor]",
         validate_args: "Optional[bool]" = None,
     ) -> "None":
-        super().__init__(loc, log_scale, validate_args)
+        super().__init__(loc, softplus_inv_scale, validate_args)
 
     # override
     @property
     def scale(self) -> "Tensor":
-        return self.log_scale.exp()
+        return F.softplus(self.softplus_inv_scale)
 
     # override
     @scale.setter
     def scale(self, value: "Tensor") -> "None":
-        self.log_scale = value
+        self.softplus_inv_scale = value
 
     # override
     def expand(
         self,
         batch_shape: "Size" = Size(),  # noqa: B008
-        _instance: "Optional[LogScaleNormal]" = None,
-    ) -> "LogScaleNormal":
-        new = self._get_checked_instance(LogScaleNormal, _instance)
+        _instance: "Optional[SoftplusInvScaleNormal]" = None,
+    ) -> "SoftplusInvScaleNormal":
+        new = self._get_checked_instance(SoftplusInvScaleNormal, _instance)
         loc = self.loc.expand(batch_shape)
-        log_scale = self.log_scale.expand(batch_shape)
-        super(LogScaleNormal, new).__init__(loc, log_scale, validate_args=False)
+        softplus_inv_scale = self.softplus_inv_scale.expand(batch_shape)
+        super(SoftplusInvScaleNormal, new).__init__(
+            loc, softplus_inv_scale, validate_args=False
+        )
         new._validate_args = self._validate_args
         return new

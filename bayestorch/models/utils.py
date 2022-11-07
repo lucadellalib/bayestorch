@@ -49,33 +49,24 @@ def nested_stack(
     --------
     >>> import torch
     >>>
+    >>> from bayestorch.models.utils import nested_stack
+    >>>
     >>>
     >>> num_outputs = 4
     >>> inputs = [
-    >>>    {"a": [torch.rand(2, 3), torch.rand(3, 5)], "b": torch.rand(1, 2)}
-    >>>    for _ in range(num_outputs)
-    >>> ]
+    ...    {"a": [torch.rand(2, 3), torch.rand(3, 5)], "b": torch.rand(1, 2)}
+    ...    for _ in range(num_outputs)
+    ... ]
     >>> outputs = nested_stack(inputs)
 
     """
-
-    def nested_stack_map(inputs: "Sequence[_Nested[Tensor]]") -> "_Nested[Tensor]":
-        first_input = inputs[0]
-        if isinstance(first_input, Tensor):
-            return torch.stack(inputs, dim=dim)
-        if first_input is None:
-            return None
-        if isinstance(first_input, dict):
-            return type(first_input)(
-                (k, nested_stack_map([output[k] for output in inputs]))
-                for k in first_input
-            )
-        return type(first_input)(map(nested_stack_map, zip(*inputs)))
-
-    # Recursive function calls create reference cycles;
-    # setting the function to None clears the reference cycle
-    try:
-        result = nested_stack_map(inputs)
-    finally:
-        nested_stack_map = None
-    return result
+    first_input = inputs[0]
+    if isinstance(first_input, Tensor):
+        return torch.stack(inputs, dim=dim)
+    if first_input is None:
+        return None
+    if isinstance(first_input, dict):
+        return type(first_input)(
+            (k, nested_stack([output[k] for output in inputs])) for k in first_input
+        )
+    return type(first_input)(map(nested_stack, zip(*inputs)))

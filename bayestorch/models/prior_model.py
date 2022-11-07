@@ -16,17 +16,21 @@
 
 """Prior model."""
 
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Tuple, TypeVar
 
-import torch
 from torch import Tensor, nn
 from torch.distributions import Distribution, Independent
-from torch.nn import Module
+from torch.nn import Module, Parameter
+
+from bayestorch.models.utils import nested_stack
 
 
 __all__ = [
     "PriorModel",
 ]
+
+
+_T = TypeVar("_T", bound="PriorModel")
 
 
 class PriorModel(Module):
@@ -36,27 +40,36 @@ class PriorModel(Module):
     --------
     >>> import torch
     >>> from torch import nn
-    >>> from torch.distributions import Normal
+    >>>
+    >>> from bayestorch.distributions import LogScaleNormal
+    >>> from bayestorch.models import PriorModel
     >>>
     >>>
     >>> batch_size = 10
     >>> in_features = 4
     >>> out_features = 2
     >>> model = nn.Linear(in_features, out_features)
+    >>> num_parameters = sum(parameter.numel() for parameter in model.parameters())
     >>> model = PriorModel(
-    >>>     model,
-    >>>     prior_builder=Normal,
-    >>>     prior_kwargs={"loc": 0.0, "scale": 0.1},
-    >>> )
+    ...     model,
+    ...     prior_builder=LogScaleNormal,
+    ...     prior_kwargs={
+    ...         "loc": torch.zeros(num_parameters),
+    ...         "log_scale": torch.full((num_parameters,), -1.0),
+    ...     },
+    ... )
     >>> input = torch.rand(batch_size, in_features)
-    >>> output = model(input)
+    >>> outputs, log_priors = model(input)
 
     """
+
+    prior: "Distribution"
+    """The prior distribution."""
 
     # override
     def __init__(
         self,
-        model: "nn.Module",
+        model: "Module",
         prior_builder: "Callable[..., Distribution]",
         prior_kwargs: "Dict[str, Any]",
     ) -> "None":
@@ -71,6 +84,9 @@ class PriorModel(Module):
             keyword arguments and returns a prior.
         prior_kwargs:
             The keyword arguments to pass to the prior builder.
+            Tensor arguments are internally registered as
+            parameters if their `requires_grad` attribute
+            is True, as persistent buffers otherwise.
 
         Raises
         ------
@@ -81,41 +97,104 @@ class PriorModel(Module):
         super().__init__()
         self.model = model
         self.prior_builder = prior_builder
-        self.prior_kwargs = prior_kwargs
+        self.prior_kwargs = prior_kwargs = {
+            k: v for k, v in prior_kwargs.items()
+        }  # Avoid side effects
 
-        # Extract particle
-        # particle = model parameters flattened into a 1D vector
-        particle = nn.utils.parameters_to_vector(model.parameters())
-
-        # Build prior (WITHOUT gradient propagation)
-        for k, v in prior_kwargs.items():
-            buffer = None
-            if isinstance(v, (int, float)):
-                buffer = torch.full_like(particle, v)
-            elif isinstance(v, Tensor):
-                buffer = v.to(particle.device)
-            if buffer is not None:
-                self.register_buffer(f"prior_{k}", buffer)
-                prior_kwargs[k] = buffer
-        self._prior = prior_builder(**prior_kwargs)
-
-        # Adjust prior event shape
-        batch_shape = self._prior.batch_shape
-        if len(batch_shape) > 0:
-            self._prior = Independent(self._prior, len(batch_shape))
-        event_shape = self._prior.event_shape
-        if event_shape != particle.shape:
-            raise ValueError(
-                f"Prior event size ({event_shape.numel()}) must be equal to "
-                f"the number of model parameters ({particle.shape.numel()}) "
-            )
+        # Build prior
+        self.prior = self._build_distribution("prior", prior_builder, prior_kwargs)
 
     # override
-    def forward(self, *args: "Any", **kwargs: "Any") -> "Any":
-        return self.model(*args, **kwargs)
+    def to(self, *args: "Any", **kwargs: "Any") -> "_T":
+        self.model.to(*args, **kwargs)
+        super().to(*args, **kwargs)
+
+        # Rebuild prior with parameters on new device
+        self.prior = self._build_distribution(
+            "prior", self.prior_builder, self.prior_kwargs
+        )
+
+        return self
+
+    # override
+    def forward(self, *args: "Any", **kwargs: "Any") -> "Tuple[Any, Tensor]":
+        """Forward pass.
+
+        In the following, let `B = {B_1, ..., B_k}` denote the
+        batch shape and `O = {O_1, ..., O_m}` the shape of a
+        leaf value of the underlying model output (can be a
+        nested tensor).
+
+        Parameters
+        ----------
+        args:
+            The positional arguments to pass to the underlying model.
+        kwargs:
+            The keyword arguments to pass to the underlying model.
+
+        Returns
+        -------
+            - The outputs, shape of a leaf value: ``[1, *B, *O]``;
+            - the log priors, shape: ``[1]``.
+
+        """
+        # Extract particle
+        particle = nn.utils.parameters_to_vector(self.model.parameters())
+
+        # Compute log priors
+        log_priors = self.prior.log_prob(particle)[None]
+
+        # Forward pass
+        outputs = [self.model(*args, **kwargs)]
+
+        return nested_stack(outputs), log_priors
+
+    def _build_distribution(
+        self,
+        name: "str",
+        distribution_builder: "Callable[..., Distribution]",
+        distribution_kwargs: "Dict[str, Any]",
+    ) -> "Distribution":
+        # Extract particle
+        # particle = model parameters flattened into a 1D vector
+        particle = nn.utils.parameters_to_vector(self.model.parameters())
+
+        # Build distribution
+        for k, v in distribution_kwargs.items():
+            key = f"{name}_{k}"
+            if isinstance(v, Tensor):
+                if key in self._parameters:
+                    v = self._parameters[key]
+                elif key in self._buffers:
+                    v = self._buffers[key]
+                else:
+                    v = self._register_tensor(key, v.to(particle))
+            distribution_kwargs[k] = v
+        distribution = distribution_builder(**distribution_kwargs)
+
+        # Adjust distribution shape
+        batch_ndims = len(distribution.batch_shape)
+        if batch_ndims > 0:
+            distribution = Independent(distribution, batch_ndims)
+
+        # Validate distribution event shape
+        event_shape = distribution.event_shape
+        if event_shape != (1,) and event_shape != particle.shape:
+            raise ValueError(
+                f"{name.capitalize()} event size ({event_shape.numel()}) must be "
+                f"equal to the number of model parameters ({particle.numel()})"
+            )
+
+        return distribution
+
+    def _register_tensor(self, name: "str", input: "Tensor") -> "Tensor":
+        if input.requires_grad:
+            input = Parameter(input)
+            self.register_parameter(name, input)
+        else:
+            self.register_buffer(name, input)
+        return input
 
     # override
     def __repr__(self) -> "str":
-        return (
-            f"{type(self).__name__}" f"(model: {self.model}, " f"prior: {self._prior})"
-        )
+        return f"{type(self).__name__}(model: {self.model}, prior: {self.prior})"

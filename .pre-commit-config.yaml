@@ -6,12 +6,14 @@ repos:
         language: system
         entry: isort
         types: [python]
+        exclude: (^examples/mnist|^examples/regression)
 
       - id: black
         name: black
         language: system
         entry: black
         types: [python]
+        exclude: (^examples/mnist|^examples/regression)
 
       - id: trailing-whitespace
         name: trailing-whitespace
@@ -56,7 +58,7 @@ repos:
         language: system
         entry: flake8
         types: [python]
-        exclude: /__init__\.py$
+        exclude: (^examples/mnist|^examples/regression|/__init__\.py)
 
       - id: flake8
         name: flake8 only __init__.py
@@ -65,7 +67,7 @@ repos:
         types: [python]
         # Ignore unused imports in __init__.py
         args: ["--extend-ignore=F401"]
-        files: /__init__\.py$
+        files: /__init__\.py
 
       - id: pytest
         name: pytest

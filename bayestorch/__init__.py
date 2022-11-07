@@ -16,5 +16,12 @@
 
 """Bayesian deep learning library for fast prototyping based on PyTorch."""
 
-from . import distributions, kernels, losses, models, preconditioners
-from .version import VERSION as __version__
+from bayestorch import (
+    distributions,
+    kernels,
+    losses,
+    models,
+    optimizers,
+    preconditioners,
+)
+from bayestorch.version import VERSION as __version__

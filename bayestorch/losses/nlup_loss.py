@@ -32,18 +32,20 @@ class NLUPLoss(loss._Loss):
 
     References
     ----------
-    .. [1] Q. Liu and D. Wang.
-           "Stein Variational Gradient Descent: A General Purpose Bayesian Inference Algorithm".
-           In: Advances in Neural Information Processing Systems. 2016, pp. 2378-2386.
-           URL: https://arxiv.org/abs/1608.04471
-    .. [2] T. Chen, E. B. Fox, and C. Guestrin.
+    .. [1] T. Chen, E. B. Fox, and C. Guestrin.
            "Stochastic Gradient Hamiltonian Monte Carlo".
            In: ICML. 2014, pp. 1683-1691.
            URL: https://arxiv.org/abs/1402.4102
+    .. [2] Q. Liu and D. Wang.
+           "Stein Variational Gradient Descent: A General Purpose Bayesian Inference Algorithm".
+           In: Advances in Neural Information Processing Systems. 2016, pp. 2378-2386.
+           URL: https://arxiv.org/abs/1608.04471
 
     Examples
     --------
     >>> import torch
+    >>>
+    >>> from bayestorch.losses import NLUPLoss
     >>>
     >>>
     >>> num_mc_samples = 5
@@ -100,10 +102,13 @@ class NLUPLoss(loss._Loss):
         log_priors:
             The log priors, shape: ``[N]``.
         log_prior_weight:
-            The log prior weight (`M` in the literature).
-            It counterbalances the bias deriving from summing the log
-            likelihood over a single batch of data instead of the entire
-            dataset. It is usually set equal to the number of training batches.
+            The log prior weight (`1 / M` in the literature).
+            According to reference [1], it counterbalances the bias deriving
+            from summing the log likelihood over a single batch of data instead
+            of over the entire dataset. It is often set equal to the number of
+            training batches. More generally, it controls the strength of the
+            regularization provided by the log prior term and its optimal
+            value depends on factors such as model and dataset size.
 
         Returns
         -------

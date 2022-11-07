@@ -41,6 +41,8 @@ class ELBOLoss(loss._Loss):
     --------
     >>> import torch
     >>>
+    >>> from bayestorch.losses import ELBOLoss
+    >>>
     >>>
     >>> num_mc_samples = 5
     >>> num_train_batches = 100
@@ -96,10 +98,13 @@ class ELBOLoss(loss._Loss):
         kl_divs:
             The Kullback-Leibler divergences, shape: ``[N]``.
         kl_div_weight:
-            The Kullback-Leibler divergence weight (`M` in the literature).
-            It counterbalances the bias deriving from summing the log
-            likelihood over a single batch of data instead of the entire
-            dataset. It is usually set equal to the number of training batches.
+            The Kullback-Leibler divergence weight (`1 / M` in the literature).
+            According to reference [1], it counterbalances the bias deriving
+            from summing the log likelihood over a single batch of data instead
+            of over the entire dataset. It is often set equal to the number of
+            training batches. More generally, it controls the strength of the
+            regularization provided by the Kullback-Leibler divergence term and
+            its optimal value depends on factors such as model and dataset size.
 
         Returns
         -------

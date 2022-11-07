@@ -21,8 +21,8 @@
 import pytest
 import torch
 from torch import nn
-from torch.distributions import Normal
 
+from bayestorch.distributions import LogScaleNormal, SoftplusInvScaleNormal
 from bayestorch.models import VariationalPosteriorModel
 
 
@@ -32,20 +32,29 @@ def test_variational_posterior_model() -> "None":
     in_features = 4
     out_features = 2
     model = nn.Linear(in_features, out_features)
+    num_parameters = sum(parameter.numel() for parameter in model.parameters())
     model = VariationalPosteriorModel(
         model,
-        prior_builder=Normal,
-        prior_kwargs={"loc": 0.0, "scale": 0.1},
-        posterior_builder=Normal,
-        posterior_kwargs={"loc": 0.0, "scale": 0.3},
+        prior_builder=LogScaleNormal,
+        prior_kwargs={
+            "loc": torch.zeros(num_parameters),
+            "log_scale": torch.full((num_parameters,), -1.0),
+        },
+        posterior_builder=SoftplusInvScaleNormal,
+        posterior_kwargs={
+            "loc": torch.zeros(num_parameters, requires_grad=True),
+            "softplus_inv_scale": torch.full(
+                (num_parameters,), -7.0, requires_grad=True
+            ),
+        },
     )
-    print(model)
     input = torch.rand(batch_size, in_features)
     outputs, kl_divs = model(
         input,
         num_mc_samples=num_mc_samples,
         exact_kl_div=False,
     )
+    print(model)
     print(f"Number of Monte Carlo samples: {num_mc_samples}")
     print(f"Batch size: {batch_size}")
     print(f"Input shape: {(batch_size, in_features)}")

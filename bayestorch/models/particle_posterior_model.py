@@ -21,9 +21,10 @@ from typing import Any, Callable, Dict, Tuple
 
 from torch import Tensor, nn
 from torch.distributions import Distribution
+from torch.nn import Module, ModuleList
 
-from .prior_model import PriorModel
-from .utils import nested_stack
+from bayestorch.models.prior_model import PriorModel
+from bayestorch.models.utils import nested_stack
 
 
 __all__ = [
@@ -46,7 +47,9 @@ class ParticlePosteriorModel(PriorModel):
     --------
     >>> import torch
     >>> from torch import nn
-    >>> from torch.distributions import Normal
+    >>>
+    >>> from bayestorch.distributions import LogScaleNormal
+    >>> from bayestorch.models import ParticlePosteriorModel
     >>>
     >>>
     >>> num_particles = 5
@@ -54,21 +57,28 @@ class ParticlePosteriorModel(PriorModel):
     >>> in_features = 4
     >>> out_features = 2
     >>> model = nn.Linear(in_features, out_features)
+    >>> num_parameters = sum(parameter.numel() for parameter in model.parameters())
     >>> model = ParticlePosteriorModel(
-    >>>     model,
-    >>>     prior_builder=Normal,
-    >>>     prior_kwargs={"loc": 0.0, "scale": 0.1},
-    >>>     num_particles=num_particles,
-    >>> )
+    ...     model,
+    ...     prior_builder=LogScaleNormal,
+    ...     prior_kwargs={
+    ...         "loc": torch.zeros(num_parameters),
+    ...         "log_scale": torch.full((num_parameters,), -1.0),
+    ...     },
+    ...     num_particles=num_particles,
+    ... )
     >>> input = torch.rand(batch_size, in_features)
     >>> outputs, log_priors = model(input)
 
     """
 
+    models: "ModuleList"
+    """The model replicas (one for each particle)."""
+
     # override
     def __init__(
         self,
-        model: "nn.Module",
+        model: "Module",
         prior_builder: "Callable[..., Distribution]",
         prior_kwargs: "Dict[str, Any]",
         num_particles: "int" = 10,
@@ -84,6 +94,9 @@ class ParticlePosteriorModel(PriorModel):
             keyword arguments and returns a prior.
         prior_kwargs:
             The keyword arguments to pass to the prior builder.
+            Tensor arguments are internally registered as
+            parameters if their `requires_grad` attribute
+            is True, as persistent buffers otherwise.
         num_particles:
             The number of particles.
 
@@ -102,13 +115,13 @@ class ParticlePosteriorModel(PriorModel):
         self.num_particles = num_particles
 
         # Replicate model (one replica for each particle)
-        self._models = nn.ModuleList(
+        self.models = ModuleList(
             [model] + [copy.deepcopy(model) for _ in range(num_particles - 1)]
         )
 
-        for model in self._models:
+        for model in self.models:
             # Sample new particle
-            new_particle = self._prior.sample()
+            new_particle = self.prior.sample()
 
             # Inject sampled particle
             start_idx = 0
@@ -141,19 +154,19 @@ class ParticlePosteriorModel(PriorModel):
         Returns
         -------
             - The outputs, shape of a leaf value: ``[N, *B, *O]``;
-            - the parameter log priors, shape: ``[N]``.
+            - the log priors, shape: ``[N]``.
 
         """
         # Extract particles
-        particles = nn.utils.parameters_to_vector(self._models.parameters()).reshape(
+        particles = nn.utils.parameters_to_vector(self.models.parameters()).reshape(
             self.num_particles, -1
         )
 
         # Compute log priors
-        log_priors = self._prior.log_prob(particles)
+        log_priors = self.prior.log_prob(particles)
 
         # Forward pass
-        outputs = [model(*args, **kwargs) for model in self._models]
+        outputs = [model(*args, **kwargs) for model in self.models]
 
         return nested_stack(outputs), log_priors
 
@@ -162,6 +175,6 @@ class ParticlePosteriorModel(PriorModel):
         return (
             f"{type(self).__name__}"
             f"(model: {self.model}, "
-            f"prior: {self._prior}, "
+            f"prior: {self.prior}, "
             f"num_particles: {self.num_particles})"
         )
