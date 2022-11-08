@@ -17,6 +17,14 @@ Bayesian inference algorithms:
 
 ## 🛠️️ Installation
 
+### Using Pip
+
+First of all, install [Python 3.6 or later](https://www.python.org). Open a terminal and run:
+
+```
+pip install bayestorch
+```
+
 ### From source
 
 First of all, install [Python 3.6 or later](https://www.python.org).
