@@ -11,7 +11,7 @@ Welcome to `bayestorch`, a Bayesian deep learning library for fast prototyping b
 Bayesian inference algorithms:
 
 - [Bayes by Backprop (BBB)](https://arxiv.org/abs/1505.05424)
-- [Markov Chain Monte Carlo (MCMC)](https://www.cs.toronto.edu/~radford/ftp/thesis.pdf)
+- [Markov chain Monte Carlo (MCMC)](https://www.cs.toronto.edu/~radford/ftp/thesis.pdf)
 - [Stein variational gradient descent (SVGD)](https://arxiv.org/abs/1608.04471)
 ---------------------------------------------------------------------------------------------------------
 
