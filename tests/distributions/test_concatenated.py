@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # ==============================================================================
 # Copyright 2022 Luca Della Libera.
 #
@@ -14,21 +16,24 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Version according to SemVer versioning system (https://semver.org/)."""
+"""Test concatenated distribution."""
+
+import pytest
+import torch
+from torch.distributions import Categorical, Normal
+
+from bayestorch.distributions import Concatenated
 
 
-__all__ = [
-    "VERSION",
-]
+def test_concatenated() -> "None":
+    loc = 0.0
+    scale = 1.0
+    logits = torch.as_tensor([0.25, 0.15, 0.10, 0.30, 0.20])
+    distribution = Concatenated([Normal(loc, scale), Categorical(logits)])
+    print(distribution)
+    print(f"Mean: {distribution.mean}")
+    print(f"Standard deviation: {distribution.stddev}")
 
 
-_MAJOR = "0"  # Major version to increment in case of incompatible API changes
-
-_MINOR = (
-    "0"  # Minor version to increment in case of backward compatible new functionality
-)
-
-_PATCH = "2"  # Patch version to increment in case of backward compatible bug fixes
-
-VERSION = f"{_MAJOR}.{_MINOR}.{_PATCH}"
-"""The package version."""
+if __name__ == "__main__":
+    pytest.main([__file__])

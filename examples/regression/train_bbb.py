@@ -1,5 +1,5 @@
 # Adapted from:
-# https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/regression/main.py#L1
+# https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/regression/main.py
 
 # Changes to the code are kept to a minimum to facilitate the comparison with the original example
 
@@ -10,9 +10,8 @@ from itertools import count
 import torch
 import torch.nn.functional as F
 
-from bayestorch.distributions import LogScaleNormal, SoftplusInvScaleNormal
-from bayestorch.losses import ELBOLoss
-from bayestorch.models import VariationalPosteriorModel
+from bayestorch.distributions import get_log_scale_normal, get_softplus_inv_scale_normal
+from bayestorch.nn import VariationalPosteriorModel
 
 POLY_DEGREE = 4
 W_target = torch.randn(POLY_DEGREE, 1) * 5
@@ -49,27 +48,21 @@ def get_batch(batch_size=32):
 
 # Number of Monte Carlo samples
 num_mc_samples = 10
+
 # Kullback-Leibler divergence weight
 kl_div_weight = 1e-1
+
 # Define model
 fc = torch.nn.Linear(W_target.size(0), 1)
-num_parameters = sum(parameter.numel() for parameter in fc.parameters())
-# Prior arguments (WITHOUT gradient propagation)
-normal_prior_loc = torch.zeros(num_parameters)
-normal_prior_log_scale = torch.full((num_parameters,), -1.0)
-# Posterior arguments (WITH gradient propagation)
-normal_posterior_loc = torch.zeros(num_parameters, requires_grad=True)
-normal_posterior_softplus_inv_scale = torch.full((num_parameters,), -7.0, requires_grad=True)
+
+# Prior arguments (WITHOUT gradient tracking)
+prior_builder, prior_kwargs = get_log_scale_normal(fc.parameters(), 0.0, -1.0)
+
+# Posterior arguments (WITH gradient tracking)
+posterior_builder, posterior_kwargs = get_softplus_inv_scale_normal(fc.parameters(), 0.0, -7.0, requires_grad=True)
+
 # Bayesian model
-fc = VariationalPosteriorModel(
-    fc,
-    LogScaleNormal,
-    {"loc": normal_prior_loc, "log_scale": normal_prior_log_scale},
-    SoftplusInvScaleNormal,
-    {"loc": normal_posterior_loc, "softplus_inv_scale": normal_posterior_softplus_inv_scale},
-)
-# Loss function
-criterion = ELBOLoss()
+fc = VariationalPosteriorModel(fc, prior_builder, prior_kwargs, posterior_builder, posterior_kwargs)
 
 for batch_idx in count(1):
     # Get data
@@ -81,11 +74,8 @@ for batch_idx in count(1):
     # Forward pass
     #output = F.smooth_l1_loss(fc(batch_x), batch_y)
     #loss = output.item()
-    outputs, kl_divs = fc(batch_x, num_mc_samples=num_mc_samples)
-    log_likelihoods = -F.smooth_l1_loss(
-        outputs.flatten(0, 1), batch_y.repeat((num_mc_samples, 1)), reduction="none",
-    ).reshape(num_mc_samples, -1)
-    loss = criterion(log_likelihoods, kl_divs, kl_div_weight)
+    output, kl_div = fc(batch_x, num_mc_samples=num_mc_samples, return_kl_div=True)
+    loss = F.smooth_l1_loss(output, batch_y, reduction="sum") + kl_div_weight * kl_div
 
     # Backward pass
     loss.backward()

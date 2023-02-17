@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # ==============================================================================
 # Copyright 2022 Luca Della Libera.
 #
@@ -14,21 +16,20 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Version according to SemVer versioning system (https://semver.org/)."""
+"""Test deterministic distribution."""
+
+import pytest
+
+from bayestorch.distributions import Deterministic
 
 
-__all__ = [
-    "VERSION",
-]
+def test_deterministic() -> "None":
+    value = 1.0
+    distribution = Deterministic(value)
+    print(distribution)
+    print(f"Mean: {distribution.mean}")
+    print(f"Standard deviation: {distribution.stddev}")
 
 
-_MAJOR = "0"  # Major version to increment in case of incompatible API changes
-
-_MINOR = (
-    "0"  # Minor version to increment in case of backward compatible new functionality
-)
-
-_PATCH = "2"  # Patch version to increment in case of backward compatible bug fixes
-
-VERSION = f"{_MAJOR}.{_MINOR}.{_PATCH}"
-"""The package version."""
+if __name__ == "__main__":
+    pytest.main([__file__])

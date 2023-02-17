@@ -59,6 +59,10 @@ class SoftplusInvScaleNormal(Normal):
     ) -> "None":
         super().__init__(loc, softplus_inv_scale, validate_args)
 
+    @property
+    def mode(self) -> "Tensor":
+        return self.mean
+
     # override
     @property
     def scale(self) -> "Tensor":

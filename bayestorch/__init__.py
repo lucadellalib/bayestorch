@@ -14,14 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Bayesian deep learning library for fast prototyping based on PyTorch."""
+"""Lightweight Bayesian deep learning library for fast prototyping based on PyTorch."""
 
-from bayestorch import (
-    distributions,
-    kernels,
-    losses,
-    models,
-    optimizers,
-    preconditioners,
-)
+from bayestorch import distributions, nn, optim
 from bayestorch.version import VERSION as __version__

@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # ==============================================================================
 # Copyright 2022 Luca Della Libera.
 #
@@ -14,21 +16,24 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Version according to SemVer versioning system (https://semver.org/)."""
+"""Test neural network utilities."""
+
+import pytest
+import torch
+
+from bayestorch.nn.utils import nested_apply
 
 
-__all__ = [
-    "VERSION",
-]
+def test_nested_apply() -> "None":
+    num_outputs = 4
+    inputs = [
+        {"a": [torch.rand(2, 3), torch.rand(3, 5)], "b": torch.rand(1, 2)}
+        for _ in range(num_outputs)
+    ]
+    outputs = nested_apply(torch.stack, inputs)
+    print(f"Shape of first nested input: {inputs[0]['a'][0].shape}")
+    print(f"Shape of first nested output: {outputs['a'][0].shape}")
 
 
-_MAJOR = "0"  # Major version to increment in case of incompatible API changes
-
-_MINOR = (
-    "0"  # Minor version to increment in case of backward compatible new functionality
-)
-
-_PATCH = "2"  # Patch version to increment in case of backward compatible bug fixes
-
-VERSION = f"{_MAJOR}.{_MINOR}.{_PATCH}"
-"""The package version."""
+if __name__ == "__main__":
+    pytest.main([__file__])

@@ -1,5 +1,5 @@
 # Adapted from:
-# https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/mnist/main.py#L1
+# https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/mnist/main.py
 
 # Changes to the code are kept to a minimum to facilitate the comparison with the original example
 
@@ -12,12 +12,10 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 
-from torch.distributions import Categorical, Independent, MixtureSameFamily
-from bayestorch.distributions import LogScaleNormal
-from bayestorch.kernels import RBFSteinKernel
-from bayestorch.losses import NLUPLoss
-from bayestorch.models import ParticlePosteriorModel
-from bayestorch.preconditioners import SVGD
+import math
+from bayestorch.distributions import get_mixture_log_scale_normal
+from bayestorch.nn import ParticlePosteriorModel
+from bayestorch.optim import SVGD
 
 
 class Net(nn.Module):
@@ -46,22 +44,27 @@ class Net(nn.Module):
         return output
 
 
-# Loss function
-criterion = NLUPLoss()
+def rbf_kernel(x1, x2):
+    deltas = torch.cdist(x1, x2)
+    squared_deltas = deltas**2
+    bandwidth = (
+        squared_deltas.detach().median()
+        / math.log(min(x1.shape[0], x2.shape[0]))
+    )
+    log_kernels = -squared_deltas / bandwidth
+    kernels = log_kernels.exp()
+    return kernels
 
 
-def train(args, model, device, train_loader, preconditioner, optimizer, epoch, num_particles, log_prior_weight):
+def train(args, model, device, train_loader, preconditioner, optimizer, epoch, log_prior_weight):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         #output = model(data)
         #loss = F.nll_loss(output, target)
-        outputs, log_priors = model(data)
-        log_likelihoods = -F.nll_loss(
-            outputs.flatten(0, 1), target.repeat(num_particles), reduction="none",
-        ).reshape(num_particles, -1)
-        loss = criterion(log_likelihoods, log_priors, log_prior_weight)
+        output, log_prior = model(data, return_log_prior=True)
+        loss = F.nll_loss(output, target, reduction="sum") - log_prior_weight * log_prior
         loss.backward()
         preconditioner.step()
         optimizer.step()
@@ -73,7 +76,7 @@ def train(args, model, device, train_loader, preconditioner, optimizer, epoch, n
                 break
 
 
-def test(model, device, test_loader, num_particles, log_prior_weight):
+def test(model, device, test_loader, log_prior_weight):
     model.eval()
     test_loss = 0
     correct = 0
@@ -82,12 +85,9 @@ def test(model, device, test_loader, num_particles, log_prior_weight):
             data, target = data.to(device), target.to(device)
             #output = model(data)
             #test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
-            outputs, log_priors = model(data)
-            log_likelihoods = -F.nll_loss(
-                outputs.flatten(0, 1), target.repeat(num_particles), reduction="none",
-            ).reshape(num_particles, -1)
-            test_loss += criterion(log_likelihoods, log_priors, log_prior_weight).item()  # sum up batch loss
-            pred = outputs.mean(dim=0).argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+            output, log_prior = model(data, return_log_prior=True)
+            test_loss += (F.nll_loss(output, target, reduction="sum") - log_prior_weight * log_prior).item()  # sum up batch loss
+            pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
@@ -164,35 +164,28 @@ def main():
     test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
     model = Net()
+
     # Prior is defined as in https://arxiv.org/abs/1505.05424
-    num_parameters = sum(parameter.numel() for parameter in model.parameters())
-    # Prior arguments (WITHOUT gradient propagation)
-    normal_mixture_prior_weight = torch.tensor(
-        [args.normal_mixture_prior_weight, 1 - args.normal_mixture_prior_weight]
+    # Prior arguments (WITHOUT gradient tracking)
+    prior_builder, prior_kwargs = get_mixture_log_scale_normal(
+        model.parameters(),
+        weights=[args.normal_mixture_prior_weight, 1 - args.normal_mixture_prior_weight],
+        locs=(0.0, 0.0),
+        log_scales=(args.normal_mixture_prior_log_scale1, args.normal_mixture_prior_log_scale2)
     )
-    normal_mixture_prior_loc = torch.zeros((2, num_parameters))
-    normal_mixture_prior_log_scale1 = torch.full((num_parameters,), args.normal_mixture_prior_log_scale1)
-    normal_mixture_prior_log_scale2 = torch.full((num_parameters,), args.normal_mixture_prior_log_scale2)
-    normal_mixture_prior_log_scale = torch.stack(
-        [normal_mixture_prior_log_scale1, normal_mixture_prior_log_scale2]
-    )
+
     # Bayesian model
-    model = ParticlePosteriorModel(
-        model,
-        lambda weight, loc, log_scale: MixtureSameFamily(Categorical(weight), Independent(LogScaleNormal(loc, log_scale), 1)),
-        {"weight": normal_mixture_prior_weight, "loc": normal_mixture_prior_loc, "log_scale": normal_mixture_prior_log_scale},
-        args.num_particles,
-    ).to(device)
-    # SVGD kernel
-    kernel = RBFSteinKernel()
+    model = ParticlePosteriorModel(model, prior_builder, prior_kwargs, args.num_particles).to(device)
+
     # SVGD preconditioner
-    preconditioner = SVGD(model.parameters(), kernel, args.num_particles)
+    preconditioner = SVGD(model.parameters(), rbf_kernel, args.num_particles)
+
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
 
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, preconditioner, optimizer, epoch, args.num_particles, args.log_prior_weight)
-        test(model, device, test_loader, args.num_particles, args.log_prior_weight)
+        train(args, model, device, train_loader, preconditioner, optimizer, epoch, args.log_prior_weight)
+        test(model, device, test_loader, args.log_prior_weight)
         scheduler.step()
 
     if args.save_model:

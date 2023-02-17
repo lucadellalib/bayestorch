@@ -2,9 +2,9 @@ This project incorporates components from the projects listed below. The origina
 
 #############################################################################################################################################################
 
-1. Code in bayestorch/optimizers/{sghmc, sgld}.py adapted from:
-   https://github.com/JavierAntoran/Bayesian-Neural-Networks/blob/1f867a5bcbd1abfecede99807eb0b5f97ed8be7c/src/Stochastic_Gradient_HMC_SA/optimizers.py#L1
-   https://github.com/JavierAntoran/Bayesian-Neural-Networks/blob/1f867a5bcbd1abfecede99807eb0b5f97ed8be7c/src/Stochastic_Gradient_Langevin_Dynamics/optimizers.py#L1
+1. Code in bayestorch/optim/{sghmc, sgld}.py adapted from:
+   https://github.com/JavierAntoran/Bayesian-Neural-Networks/blob/1f867a5bcbd1abfecede99807eb0b5f97ed8be7c/src/Stochastic_Gradient_HMC_SA/optimizers.py
+   https://github.com/JavierAntoran/Bayesian-Neural-Networks/blob/1f867a5bcbd1abfecede99807eb0b5f97ed8be7c/src/Stochastic_Gradient_Langevin_Dynamics/optimizers.py
 
 MIT License
 
@@ -31,8 +31,8 @@ SOFTWARE.
 #############################################################################################################################################################
 
 2. Code in examples/{mnist, regression}/{train_bbb, train_mcmc, train_svgd}.py adapted from:
-   https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/mnist/main.py#L1
-   https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/regression/main.py#L1
+   https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/mnist/main.py
+   https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/regression/main.py
 
 BSD 3-Clause License
 

@@ -1,5 +1,5 @@
 # Adapted from:
-# https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/mnist/main.py#L1
+# https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/mnist/main.py
 
 from __future__ import print_function
 import argparse

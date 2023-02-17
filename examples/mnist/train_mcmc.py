@@ -1,5 +1,5 @@
 # Adapted from:
-# https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/mnist/main.py#L1
+# https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/mnist/main.py
 
 # Changes to the code are kept to a minimum to facilitate the comparison with the original example
 
@@ -11,11 +11,9 @@ import torch.nn.functional as F
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 
-from torch.distributions import Categorical, Independent, MixtureSameFamily
-from bayestorch.distributions import LogScaleNormal
-from bayestorch.losses import NLUPLoss
-from bayestorch.models import PriorModel
-from bayestorch.optimizers import SGLD
+from bayestorch.distributions import get_mixture_log_scale_normal
+from bayestorch.nn import PriorModel
+from bayestorch.optim import SGLD
 
 
 class Net(nn.Module):
@@ -44,10 +42,6 @@ class Net(nn.Module):
         return output
 
 
-# Loss function
-criterion = NLUPLoss()
-
-
 def train(args, model, device, train_loader, optimizer, epoch, log_prior_weight):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
@@ -55,11 +49,8 @@ def train(args, model, device, train_loader, optimizer, epoch, log_prior_weight)
         optimizer.zero_grad()
         #output = model(data)
         #loss = F.nll_loss(output, target)
-        outputs, log_priors = model(data)
-        log_likelihoods = -F.nll_loss(
-            outputs.flatten(0, 1), target, reduction="none",
-        ).reshape(1, -1)
-        loss = criterion(log_likelihoods, log_priors, log_prior_weight)
+        output, log_prior = model(data, return_log_prior=True)
+        loss = F.nll_loss(output, target, reduction="sum") - log_prior_weight * log_prior
         loss.backward()
         optimizer.step()
         if batch_idx % args.log_interval == 0:
@@ -79,12 +70,9 @@ def test(model, device, test_loader, log_prior_weight):
             data, target = data.to(device), target.to(device)
             #output = model(data)
             #test_loss += F.nll_loss(output, target, reduction='sum').item()  # sum up batch loss
-            outputs, log_priors = model(data)
-            log_likelihoods = -F.nll_loss(
-                outputs.flatten(0, 1), target, reduction="none",
-            ).reshape(1, -1)
-            test_loss += criterion(log_likelihoods, log_priors, log_prior_weight).item()  # sum up batch loss
-            pred = outputs.mean(dim=0).argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+            output, log_prior = model(data, return_log_prior=True)
+            test_loss += (F.nll_loss(output, target, reduction="sum") - log_prior_weight * log_prior).item()  # sum up batch loss
+            pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
@@ -163,24 +151,19 @@ def main():
     test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
 
     model = Net()
+
     # Prior is defined as in https://arxiv.org/abs/1505.05424
-    num_parameters = sum(parameter.numel() for parameter in model.parameters())
-    # Prior arguments (WITHOUT gradient propagation)
-    normal_mixture_prior_weight = torch.tensor(
-        [args.normal_mixture_prior_weight, 1 - args.normal_mixture_prior_weight]
+    # Prior arguments (WITHOUT gradient tracking)
+    prior_builder, prior_kwargs = get_mixture_log_scale_normal(
+        model.parameters(),
+        weights=[args.normal_mixture_prior_weight, 1 - args.normal_mixture_prior_weight],
+        locs=(0.0, 0.0),
+        log_scales=(args.normal_mixture_prior_log_scale1, args.normal_mixture_prior_log_scale2)
     )
-    normal_mixture_prior_loc = torch.zeros((2, num_parameters))
-    normal_mixture_prior_log_scale1 = torch.full((num_parameters,), args.normal_mixture_prior_log_scale1)
-    normal_mixture_prior_log_scale2 = torch.full((num_parameters,), args.normal_mixture_prior_log_scale2)
-    normal_mixture_prior_log_scale = torch.stack(
-        [normal_mixture_prior_log_scale1, normal_mixture_prior_log_scale2]
-    )
+
     # Bayesian model
-    model = PriorModel(
-        model,
-        lambda weight, loc, log_scale: MixtureSameFamily(Categorical(weight), Independent(LogScaleNormal(loc, log_scale), 1)),
-        {"weight": normal_mixture_prior_weight, "loc": normal_mixture_prior_loc, "log_scale": normal_mixture_prior_log_scale},
-    ).to(device)
+    model = PriorModel(model, prior_builder, prior_kwargs).to(device)
+
     optimizer = SGLD(
         model.parameters(),
         lr=args.lr,

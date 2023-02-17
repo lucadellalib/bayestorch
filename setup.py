@@ -50,7 +50,7 @@ with open(os.path.join(_ROOT_DIR, "README.md"), encoding="utf-8") as f:
 setup(
     name="bayestorch",
     version=_VERSION,
-    description="Bayesian deep learning library for fast prototyping based on PyTorch",
+    description="Lightweight Bayesian deep learning library for fast prototyping based on PyTorch",
     long_description=_README,
     long_description_content_type="text/markdown",
     author="Luca Della Libera",
@@ -82,7 +82,7 @@ setup(
     keywords=["Bayesian deep learning", "PyTorch"],
     platforms=["OS Independent"],
     include_package_data=True,
-    install_requires=["torch>=1.6.0"],
+    install_requires=["torch>=1.5.0"],
     extras_require={
         "test": [
             "pytest>=5.4.3",

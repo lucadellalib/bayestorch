@@ -1,5 +1,5 @@
 # Adapted from:
-# https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/regression/main.py#L1
+# https://github.com/pytorch/examples/blob/9aad148615b7519eadfa1a60356116a50561f192/regression/main.py
 
 # Changes to the code are kept to a minimum to facilitate the comparison with the original example
 
@@ -10,11 +10,10 @@ from itertools import count
 import torch
 import torch.nn.functional as F
 
-from bayestorch.distributions import LogScaleNormal
-from bayestorch.kernels import RBFSteinKernel
-from bayestorch.losses import NLUPLoss
-from bayestorch.models import ParticlePosteriorModel
-from bayestorch.preconditioners import SVGD
+import math
+from bayestorch.distributions import get_log_scale_normal
+from bayestorch.nn import ParticlePosteriorModel
+from bayestorch.optim import SVGD
 
 POLY_DEGREE = 4
 W_target = torch.randn(POLY_DEGREE, 1) * 5
@@ -49,29 +48,35 @@ def get_batch(batch_size=32):
     return x, y
 
 
+def rbf_kernel(x1, x2):
+    deltas = torch.cdist(x1, x2)
+    squared_deltas = deltas**2
+    bandwidth = (
+        squared_deltas.detach().median()
+        / math.log(min(x1.shape[0], x2.shape[0]))
+    )
+    log_kernels = -squared_deltas / bandwidth
+    kernels = log_kernels.exp()
+    return kernels
+
+
 # Number of particles
 num_particles = 10
+
 # Log prior weight
-log_prob_weight = 1e-1
+log_prior_weight = 1e-1
+
 # Define model
 fc = torch.nn.Linear(W_target.size(0), 1)
-num_parameters = sum(parameter.numel() for parameter in fc.parameters())
-# Prior arguments (WITHOUT gradient propagation)
-normal_prior_loc = torch.zeros(num_parameters)
-normal_prior_log_scale = torch.full((num_parameters,), -1.0)
+
+# Prior arguments (WITHOUT gradient tracking)
+prior_builder, prior_kwargs = get_log_scale_normal(fc.parameters(), 0.0, -1.0)
+
 # Bayesian model
-fc = ParticlePosteriorModel(
-    fc,
-    LogScaleNormal,
-    {"loc": normal_prior_loc, "log_scale": normal_prior_log_scale},
-    num_particles,
-)
-# SVGD kernel
-kernel = RBFSteinKernel()
+fc = ParticlePosteriorModel(fc, prior_builder, prior_kwargs, num_particles)
+
 # SVGD preconditioner
-preconditioner = SVGD(fc.parameters(), kernel, num_particles)
-# Loss function
-criterion = NLUPLoss()
+preconditioner = SVGD(fc.parameters(), rbf_kernel, num_particles)
 
 for batch_idx in count(1):
     # Get data
@@ -83,11 +88,8 @@ for batch_idx in count(1):
     # Forward pass
     #output = F.smooth_l1_loss(fc(batch_x), batch_y)
     #loss = output.item()
-    outputs, log_probs = fc(batch_x)
-    log_likelihoods = -F.smooth_l1_loss(
-        outputs.flatten(0, 1), batch_y.repeat((num_particles, 1)), reduction="none",
-    ).reshape(num_particles, -1)
-    loss = criterion(log_likelihoods, log_probs, log_prob_weight)
+    output, log_prior = fc(batch_x, return_log_prior=True)
+    loss = F.smooth_l1_loss(output, batch_y, reduction="sum") - log_prior_weight * log_prior
 
     # Backward pass
     loss.backward()

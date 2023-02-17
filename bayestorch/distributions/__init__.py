@@ -16,5 +16,10 @@
 
 """Distributions."""
 
+from bayestorch.distributions.concatenated import *
+from bayestorch.distributions.constraints import *
+from bayestorch.distributions.deterministic import *
+from bayestorch.distributions.finite import *
 from bayestorch.distributions.log_scale_normal import *
 from bayestorch.distributions.softplus_inv_scale_normal import *
+from bayestorch.distributions.utils import *
