@@ -444,5 +444,5 @@ class VariationalPosteriorModel(PriorModel):
             f"(model: {self.model}, "
             f"prior: {self.prior}, "
             f"posterior: {self.posterior}, "
-            f"model_parameters: {self.model_parameters})"
+            f"model_parameters: {sum(parameter.numel() for parameter in self.model_parameters)})"
         )

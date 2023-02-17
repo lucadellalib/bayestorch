@@ -222,5 +222,5 @@ class PriorModel(Module):
             f"{type(self).__name__}"
             f"(model: {self.model}, "
             f"prior: {self.prior}, "
-            f"model_parameters: {self.model_parameters})"
+            f"model_parameters: {sum(parameter.numel() for parameter in self.model_parameters)})"
         )

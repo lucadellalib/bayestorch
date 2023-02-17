@@ -246,5 +246,5 @@ class ParticlePosteriorModel(PriorModel):
             f"(model: {self.model}, "
             f"prior: {self.prior}, "
             f"num_particles: {self.num_particles}, "
-            f"model_parameters: {self.model_parameters})"
+            f"model_parameters: {sum(parameter.numel() for parameter in self.model_parameters)})"
         )
