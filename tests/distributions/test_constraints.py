@@ -22,19 +22,14 @@ import pytest
 import torch
 from torch.distributions.constraints import independent, positive, real
 
-from bayestorch.distributions.constraints import (
-    concatenation,
-    ordered_real_vector,
-    real_set,
-)
+from bayestorch.distributions.constraints import cat, ordered_real_vector, real_set
 
 
-def test_concatenation() -> "None":
-    constraint = concatenation(
-        [independent(real, 1), independent(positive, 1)], lengths=(2, 1)
-    )
+def test_cat() -> "None":
+    constraint = cat([independent(real, 1), independent(positive, 1)], lengths=(2, 1))
     check = constraint.check(torch.as_tensor([-0.2, -0.5, 2.3]))
     print(f"Constraint: {constraint}")
+    print(f"Is discrete: {constraint.is_discrete}")
     print(f"Check: {check}")
 
 
@@ -42,13 +37,16 @@ def test_ordered_real_vector() -> "None":
     constraint = ordered_real_vector
     check = constraint.check(torch.as_tensor([0.2, 0.4, 0.8]))
     print(f"Constraint: {constraint}")
+    print(f"Is discrete: {constraint.is_discrete}")
     print(f"Check: {check}")
+    print(f"Is discrete: {constraint.is_discrete}")
 
 
 def test_real_set() -> "None":
     constraint = real_set(torch.as_tensor([0.2, 0.4, 0.8]))
     check = constraint.check(torch.as_tensor(0.2))
     print(f"Constraint: {constraint}")
+    print(f"Is discrete: {constraint.is_discrete}")
     print(f"Check: {check}")
 
 

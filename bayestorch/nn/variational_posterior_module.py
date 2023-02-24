@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Variational posterior model."""
+"""Variational posterior module."""
 
 import copy
 import logging
@@ -35,16 +35,16 @@ from torch import Tensor
 from torch.distributions import Distribution, kl_divergence
 from torch.nn import Module, Parameter
 
-from bayestorch.nn.prior_model import PriorModel
+from bayestorch.nn.prior_module import PriorModule
 from bayestorch.nn.utils import nested_apply
 
 
 __all__ = [
-    "VariationalPosteriorModel",
+    "VariationalPosteriorModule",
 ]
 
 
-_T = TypeVar("_T", bound="VariationalPosteriorModel")
+_T = TypeVar("_T", bound="VariationalPosteriorModule")
 
 _T_destination = Module.T_destination
 
@@ -53,8 +53,8 @@ _IncompatibleKeys = torch.nn.modules.module._IncompatibleKeys
 _LOGGER = logging.getLogger(__name__)
 
 
-class VariationalPosteriorModel(PriorModel):
-    """Bayesian model that defines a prior and a variational
+class VariationalPosteriorModule(PriorModule):
+    """Bayesian module that defines a prior and a variational
     posterior over its parameters.
 
     References
@@ -70,7 +70,7 @@ class VariationalPosteriorModel(PriorModel):
     >>> from torch import nn
     >>>
     >>> from bayestorch.distributions import LogScaleNormal, SoftplusInvScaleNormal
-    >>> from bayestorch.nn import VariationalPosteriorModel
+    >>> from bayestorch.nn import VariationalPosteriorModule
     >>>
     >>>
     >>> num_mc_samples = 5
@@ -79,7 +79,7 @@ class VariationalPosteriorModel(PriorModel):
     >>> out_features = 2
     >>> model = nn.Linear(in_features, out_features)
     >>> num_parameters = sum(parameter.numel() for parameter in model.parameters())
-    >>> model = VariationalPosteriorModel(
+    >>> model = VariationalPosteriorModule(
     ...     model,
     ...     prior_builder=LogScaleNormal,
     ...     prior_kwargs={
@@ -112,24 +112,24 @@ class VariationalPosteriorModel(PriorModel):
     # override
     def __init__(
         self,
-        model: "Module",
+        module: "Module",
         prior_builder: "Callable[..., Distribution]",
         prior_kwargs: "Dict[str, Any]",
         posterior_builder: "Callable[..., Distribution]",
         posterior_kwargs: "Dict[str, Any]",
-        model_parameters: "Optional[Iterable[Tensor]]" = None,
+        module_parameters: "Optional[Iterable[Tensor]]" = None,
     ) -> "None":
         """Initialize the object.
 
         Parameters
         ----------
-        model:
-            The model.
+        module:
+            The module.
         prior_builder:
             The prior builder, i.e. a callable that receives keyword
             arguments and returns a prior with size (batch + event)
             equal to the length of the 1D tensor obtained by flattening
-            and concatenating each tensor in `model_parameters`.
+            and concatenating each tensor in `module_parameters`.
         prior_kwargs:
             The keyword arguments to pass to the prior builder.
             Tensor arguments are internally registered as parameters
@@ -143,11 +143,11 @@ class VariationalPosteriorModel(PriorModel):
             Tensor arguments are internally registered as parameters
             if their `requires_grad` attribute is True, as persistent
             buffers otherwise.
-        model_parameters:
-            The model parameters over which the prior and posterior
+        module_parameters:
+            The module parameters over which the prior and posterior
             are defined. Useful to selectively define a prior and a
-            posterior over a restricted subset of modules/parameters.
-            Default to ``model.parameters()``.
+            posterior over a restricted subset of submodules/parameters.
+            Default to ``module.parameters()``.
 
         Raises
         ------
@@ -155,7 +155,7 @@ class VariationalPosteriorModel(PriorModel):
             If an invalid argument value is given.
 
         """
-        super().__init__(model, prior_builder, prior_kwargs, model_parameters)
+        super().__init__(module, prior_builder, prior_kwargs, module_parameters)
         self.posterior_builder = posterior_builder
         self.posterior_kwargs = posterior_kwargs = {
             k: v for k, v in posterior_kwargs.items()
@@ -167,12 +167,12 @@ class VariationalPosteriorModel(PriorModel):
         )
 
         # Retrieve indices of the selected parameters
-        self._model_parameter_idxes = []
-        all_model_parameters = list(model.parameters())
-        for parameter in self.model_parameters:
-            for i, x in enumerate(all_model_parameters):
+        self._module_parameter_idxes = []
+        all_module_parameters = list(module.parameters())
+        for parameter in self.module_parameters:
+            for i, x in enumerate(all_module_parameters):
                 if parameter is x:
-                    self._model_parameter_idxes.append(i)
+                    self._module_parameter_idxes.append(i)
                     break
 
         # Log Kullback-Leibler divergence warning only once
@@ -180,12 +180,35 @@ class VariationalPosteriorModel(PriorModel):
 
     # override
     def named_parameters(
-        self, *args: "Any", **kwargs: "Any"
+        self,
+        *args: "Any",
+        include_all: "bool" = True,
+        **kwargs: "Any",
     ) -> "Iterator[Tuple[str, Parameter]]":
+        """Return the named parameters.
+
+        Parameters
+        ----------
+        include_all:
+            True to include all the named parameters,
+            False to include only those over which the
+            prior/posterior is defined.
+
+        Returns
+        -------
+            The named parameters.
+
+        """
+        if include_all:
+            return (
+                (k, v)
+                for k, v in super(PriorModule, self).named_parameters(*args, **kwargs)
+                if not any(v is parameter for parameter in self.module_parameters)
+            )
         return (
             (k, v)
-            for k, v in super().named_parameters(*args, **kwargs)
-            if not any(v is parameter for parameter in self.model_parameters)
+            for k, v in super(PriorModule, self).named_parameters(*args, **kwargs)
+            if not any(v is parameter for parameter in self.module.parameters())
         )
 
     # override
@@ -200,7 +223,7 @@ class VariationalPosteriorModel(PriorModel):
             destination=destination, prefix=prefix, keep_vars=True
         )
         for k, v in list(result.items()):
-            if any(v is parameter for parameter in self.model_parameters):
+            if any(v is parameter for parameter in self.module_parameters):
                 result.pop(k)
             elif not keep_vars:
                 result[k] = v.detach()
@@ -212,22 +235,13 @@ class VariationalPosteriorModel(PriorModel):
         state_dict: "Dict[str, Any]",
         strict: "bool" = True,
     ) -> "_IncompatibleKeys":
-        parameter_names = [f"model.{name}" for name, _ in self.model.named_parameters()]
-        for idx, parameter in zip(self._model_parameter_idxes, self.model_parameters):
+        parameter_names = [
+            f"module.{name}" for name, _ in self.module.named_parameters()
+        ]
+        for idx, parameter in zip(self._module_parameter_idxes, self.module_parameters):
             state_dict[parameter_names[idx]] = parameter
         result = super().load_state_dict(state_dict, strict)
         return result
-
-    # override
-    def to(self, *args: "Any", **kwargs: "Any") -> "_T":
-        super().to(*args, **kwargs)
-
-        # Rebuild posterior with parameters on new device
-        self.posterior = self._build_distribution(
-            "posterior", self.posterior_builder, self.posterior_kwargs
-        )
-
-        return self
 
     # override
     def forward(
@@ -243,13 +257,13 @@ class VariationalPosteriorModel(PriorModel):
 
         In the following, let `N` denote the number of Monte Carlo samples,
         `B = {B_1, ..., B_k}` the batch shape, and `O = {O_1, ..., O_m}`
-        the shape of a leaf value of the underlying model output (can be
+        the shape of a leaf value of the underlying module output (can be
         a nested tensor).
 
         Parameters
         ----------
         args:
-            The positional arguments to pass to the underlying model.
+            The positional arguments to pass to the underlying module.
         num_mc_samples:
             The number of Monte Carlo samples.
         return_kl_div:
@@ -262,14 +276,14 @@ class VariationalPosteriorModel(PriorModel):
             False to use Monte Carlo approximation.
         reduction:
             The reduction to apply to the leaf values of the underlying
-            model output and to the Kullback-Leibler divergence (if
+            module output and to the Kullback-Leibler divergence (if
             `return_kl_div` is True) across Monte Carlo samples.
             Must be one of the following:
             - "none": no reduction is applied;
             - "mean": the leaf values and the Kullback-Leibler divergence
                       are averaged across Monte Carlo samples.
         kwargs:
-            The keyword arguments to pass to the underlying model.
+            The keyword arguments to pass to the underlying module.
 
         Returns
         -------
@@ -287,7 +301,7 @@ class VariationalPosteriorModel(PriorModel):
         Warnings
         --------
         High memory usage is to be expected as `num_mc_samples - 1`
-        full copies of the model must be maintained internally.
+        replicas of the module must be maintained internally.
 
         """
         if num_mc_samples < 1 or not float(num_mc_samples).is_integer():
@@ -312,27 +326,27 @@ class VariationalPosteriorModel(PriorModel):
         # Sample new particles
         new_particles = self.posterior.rsample((num_mc_samples,))
 
-        # Replicate model (one replica for each Monte Carlo sample)
-        models = [self.model] + [
-            copy.deepcopy(self.model) for _ in range(num_mc_samples - 1)
+        # Replicate module (one replica for each Monte Carlo sample)
+        replicas = [self.module] + [
+            copy.deepcopy(self.module) for _ in range(num_mc_samples - 1)
         ]
 
         # Inject sampled particles
         new_particles = new_particles.flatten()
         start_idx = 0
-        for model in models:
-            all_model_parameters = list(model.parameters())
-            model_parameters = [
-                all_model_parameters[idx] for idx in self._model_parameter_idxes
+        for replica in replicas:
+            replica_parameters = list(replica.parameters())
+            module_parameters = [
+                replica_parameters[idx] for idx in self._module_parameter_idxes
             ]
-            for parameter in model_parameters:
+            for parameter in module_parameters:
                 end_idx = start_idx + parameter.numel()
                 new_parameter = new_particles[start_idx:end_idx].reshape_as(parameter)
                 parameter.detach_().requires_grad_(False).copy_(new_parameter)
                 start_idx = end_idx
 
         # Forward pass
-        outputs = [model(*args, **kwargs) for model in models]
+        outputs = [replica(*args, **kwargs) for replica in replicas]
         if reduction == "none":
             outputs = nested_apply(torch.stack, outputs)
         elif reduction == "mean":
@@ -368,7 +382,7 @@ class VariationalPosteriorModel(PriorModel):
 
         return outputs, kl_divs
 
-    # This implementation does not require copying the model
+    # This implementation does not require copying the module
     # and can be used when gradient tracking is disabled
     def _fast_forward(
         self,
@@ -401,14 +415,14 @@ class VariationalPosteriorModel(PriorModel):
 
             # Inject sampled particle
             start_idx = 0
-            for parameter in self.model_parameters:
+            for parameter in self.module_parameters:
                 end_idx = start_idx + parameter.numel()
                 new_parameter = new_particle[start_idx:end_idx].reshape_as(parameter)
                 parameter.detach_().requires_grad_(False).copy_(new_parameter)
                 start_idx = end_idx
 
             # Forward pass
-            output = self.model(*args, **kwargs)
+            output = self.module(*args, **kwargs)
             outputs.append(output)
 
             if isinstance(kl_divs, Tensor) or not return_kl_div:
@@ -438,11 +452,24 @@ class VariationalPosteriorModel(PriorModel):
         return outputs, kl_divs
 
     # override
+    def _apply(self, *args: "Any", **kwargs: "Any") -> "_T":
+        super()._apply(*args, **kwargs)
+
+        # Rebuild posterior using updated parameters/buffers
+        # (`_apply` might create copies of parameters/buffers,
+        # therefore references within the posterior are lost)
+        self.posterior = self._build_distribution(
+            "posterior", self.posterior_builder, self.posterior_kwargs
+        )
+
+        return self
+
+    # override
     def __repr__(self) -> "str":
         return (
             f"{type(self).__name__}"
-            f"(model: {self.model}, "
+            f"(module: {self.module}, "
             f"prior: {self.prior}, "
             f"posterior: {self.posterior}, "
-            f"model_parameters: {sum(parameter.numel() for parameter in self.model_parameters)})"
+            f"module_parameters: {sum(parameter.numel() for parameter in self.module_parameters)})"
         )

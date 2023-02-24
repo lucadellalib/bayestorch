@@ -13,7 +13,7 @@ from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 
 from bayestorch.distributions import get_mixture_log_scale_normal, get_softplus_inv_scale_normal
-from bayestorch.nn import VariationalPosteriorModel
+from bayestorch.nn import VariationalPosteriorModule
 
 
 class Net(nn.Module):
@@ -169,7 +169,7 @@ def main():
     )
 
     # Bayesian model
-    model = VariationalPosteriorModel(
+    model = VariationalPosteriorModule(
         model, prior_builder, prior_kwargs, posterior_builder, posterior_kwargs
     ).to(device)
 

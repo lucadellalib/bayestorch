@@ -19,6 +19,7 @@
 """Test log scale normal distribution."""
 
 import pytest
+from torch.distributions import kl_divergence
 
 from bayestorch.distributions import LogScaleNormal
 
@@ -28,8 +29,28 @@ def test_log_scale_normal() -> "None":
     log_scale = -1.0
     distribution = LogScaleNormal(loc, log_scale)
     print(distribution)
+    print(distribution.expand((2, 3)))
+    if distribution.has_rsample:
+        distribution.rsample()
+    else:
+        distribution.sample()
     print(f"Mean: {distribution.mean}")
+    print(f"Mode: {distribution.mode}")
     print(f"Standard deviation: {distribution.stddev}")
+    print(f"Variance: {distribution.variance}")
+    print(f"Log prob: {distribution.log_prob(distribution.sample())}")
+    print(f"CDF: {distribution.cdf(distribution.sample())}")
+    print(f"Entropy: {distribution.entropy()}")
+    print(f"Support: {distribution.support}")
+    try:
+        print(f"Enumerated support: {distribution.enumerate_support()}")
+        print(f"Enumerated support: {distribution.enumerate_support(False)}")
+    except NotImplementedError:
+        pass
+    print(
+        f"Kullback-Leibler divergence: "
+        f"{kl_divergence(distribution, LogScaleNormal(loc, log_scale, validate_args=True))}"
+    )
 
 
 if __name__ == "__main__":

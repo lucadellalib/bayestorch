@@ -46,6 +46,12 @@ def test_svgd() -> "None":
     models = nn.ModuleList(
         [nn.Linear(in_features, out_features) for _ in range(num_particles)]
     )
+    try:
+        _ = SVGD(models.parameters(), num_particles=-1)
+        _ = SVGD(models.parameters(), num_particles=0.5)
+        _ = SVGD(models.parameters(), num_particles=3)
+    except Exception:
+        pass
     preconditioner = SVGD(models.parameters(), rbf_kernel, num_particles)
     input = torch.rand(batch_size, in_features)
     outputs = torch.cat([model(input) for model in models])

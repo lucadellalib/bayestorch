@@ -19,6 +19,7 @@
 """Test inverse softplus scale normal distribution."""
 
 import pytest
+from torch.distributions import kl_divergence
 
 from bayestorch.distributions import SoftplusInvScaleNormal
 
@@ -28,8 +29,28 @@ def test_softplus_inv_scale_normal() -> "None":
     softplus_inv_scale = -1.0
     distribution = SoftplusInvScaleNormal(loc, softplus_inv_scale)
     print(distribution)
+    print(distribution.expand((2, 3)))
+    if distribution.has_rsample:
+        distribution.rsample()
+    else:
+        distribution.sample()
     print(f"Mean: {distribution.mean}")
+    print(f"Mode: {distribution.mode}")
     print(f"Standard deviation: {distribution.stddev}")
+    print(f"Variance: {distribution.variance}")
+    print(f"Log prob: {distribution.log_prob(distribution.sample())}")
+    print(f"CDF: {distribution.cdf(distribution.sample())}")
+    print(f"Entropy: {distribution.entropy()}")
+    print(f"Support: {distribution.support}")
+    try:
+        print(f"Enumerated support: {distribution.enumerate_support()}")
+        print(f"Enumerated support: {distribution.enumerate_support(False)}")
+    except NotImplementedError:
+        pass
+    print(
+        f"Kullback-Leibler divergence: "
+        f"{kl_divergence(distribution, SoftplusInvScaleNormal(loc, softplus_inv_scale, validate_args=True))}"
+    )
 
 
 if __name__ == "__main__":

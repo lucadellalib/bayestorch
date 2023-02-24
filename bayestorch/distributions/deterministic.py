@@ -146,5 +146,6 @@ class Deterministic(Finite):
 
 
 @register_kl(Deterministic, Distribution)
+@register_kl(Deterministic, Finite)  # Avoid ambiguities
 def _kl_deterministic_distribution(p: "Deterministic", q: "Distribution") -> "Tensor":
     return -q.log_prob(p.value)

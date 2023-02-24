@@ -14,27 +14,27 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Particle posterior model."""
+"""Particle posterior module."""
 
 import copy
-from typing import Any, Callable, Dict, Iterable, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, Iterator, Optional, Tuple, Union
 
 import torch
-from torch import Tensor, nn
+from torch import Tensor
 from torch.distributions import Distribution
-from torch.nn import Module, ModuleList
+from torch.nn import Module, ModuleList, Parameter
 
-from bayestorch.nn.prior_model import PriorModel
+from bayestorch.nn.prior_module import PriorModule
 from bayestorch.nn.utils import nested_apply
 
 
 __all__ = [
-    "ParticlePosteriorModel",
+    "ParticlePosteriorModule",
 ]
 
 
-class ParticlePosteriorModel(PriorModel):
-    """Bayesian model that defines a prior and a particle-based
+class ParticlePosteriorModule(PriorModule):
+    """Bayesian module that defines a prior and a particle-based
     posterior over its parameters.
 
     References
@@ -50,7 +50,7 @@ class ParticlePosteriorModel(PriorModel):
     >>> from torch import nn
     >>>
     >>> from bayestorch.distributions import LogScaleNormal
-    >>> from bayestorch.nn import ParticlePosteriorModel
+    >>> from bayestorch.nn import ParticlePosteriorModule
     >>>
     >>>
     >>> num_particles = 5
@@ -59,7 +59,7 @@ class ParticlePosteriorModel(PriorModel):
     >>> out_features = 2
     >>> model = nn.Linear(in_features, out_features)
     >>> num_parameters = sum(parameter.numel() for parameter in model.parameters())
-    >>> model = ParticlePosteriorModel(
+    >>> model = ParticlePosteriorModule(
     ...     model,
     ...     prior_builder=LogScaleNormal,
     ...     prior_kwargs={
@@ -78,29 +78,29 @@ class ParticlePosteriorModel(PriorModel):
 
     """
 
-    models: "ModuleList"
-    """The model replicas (one for each particle)."""
+    replicas: "ModuleList"
+    """The module replicas (one for each particle)."""
 
     # override
     def __init__(
         self,
-        model: "Module",
+        module: "Module",
         prior_builder: "Callable[..., Distribution]",
         prior_kwargs: "Dict[str, Any]",
         num_particles: "int" = 10,
-        model_parameters: "Optional[Iterable[Tensor]]" = None,
+        module_parameters: "Optional[Iterable[Tensor]]" = None,
     ) -> "None":
         """Initialize the object.
 
         Parameters
         ----------
-        model:
-            The model.
+        module:
+            The module.
         prior_builder:
             The prior builder, i.e. a callable that receives keyword
             arguments and returns a prior with size (batch + event)
             equal to the length of the 1D tensor obtained by flattening
-            and concatenating each tensor in `model_parameters`.
+            and concatenating each tensor in `module_parameters`.
         prior_kwargs:
             The keyword arguments to pass to the prior builder.
             Tensor arguments are internally registered as parameters
@@ -108,11 +108,11 @@ class ParticlePosteriorModel(PriorModel):
             buffers otherwise.
         num_particles:
             The number of particles.
-        model_parameters:
-            The model parameters over which the prior is defined.
+        module_parameters:
+            The module parameters over which the prior is defined.
             Useful to selectively define a prior over a restricted
-            subset of modules/parameters.
-            Default to ``model.parameters()``.
+            subset of submodules/parameters.
+            Default to ``module.parameters()``.
 
         Raises
         ------
@@ -122,7 +122,7 @@ class ParticlePosteriorModel(PriorModel):
         Warnings
         --------
         High memory usage is to be expected as `num_particles - 1`
-        full copies of the model must be maintained internally.
+        replicas of the module must be maintained internally.
 
         """
         if num_particles < 1 or not float(num_particles).is_integer():
@@ -130,40 +130,99 @@ class ParticlePosteriorModel(PriorModel):
                 f"`num_particles` ({num_particles}) must be in the integer interval [1, inf)"
             )
 
-        super().__init__(model, prior_builder, prior_kwargs, model_parameters)
+        super().__init__(module, prior_builder, prior_kwargs, module_parameters)
         self.num_particles = int(num_particles)
 
-        # Replicate model (one replica for each particle)
-        self.models = ModuleList(
-            [model] + [copy.deepcopy(model) for _ in range(num_particles - 1)]
+        # Replicate module (one replica for each particle)
+        self.replicas = ModuleList(
+            [module] + [copy.deepcopy(module) for _ in range(num_particles - 1)]
         )
 
         # Retrieve indices of the selected parameters
-        model_parameter_idxes = []
-        all_model_parameters = list(model.parameters())
-        for parameter in self.model_parameters:
-            for i, x in enumerate(all_model_parameters):
+        self._module_parameter_idxes = []
+        replica_parameters = list(module.parameters())
+        for parameter in self.module_parameters:
+            for i, x in enumerate(replica_parameters):
                 if parameter is x:
-                    model_parameter_idxes.append(i)
+                    self._module_parameter_idxes.append(i)
                     break
 
-        for model in self.models:
+        for replica in self.replicas:
             # Sample new particle
             new_particle = self.prior.sample()
 
             # Inject sampled particle
             start_idx = 0
-            all_model_parameters = list(model.parameters())
-            model_parameters = [
-                all_model_parameters[idx] for idx in model_parameter_idxes
+            replica_parameters = list(replica.parameters())
+            module_parameters = [
+                replica_parameters[idx] for idx in self._module_parameter_idxes
             ]
-            for parameter in model_parameters:
+            for parameter in module_parameters:
                 end_idx = start_idx + parameter.numel()
                 new_parameter = new_particle[start_idx:end_idx].reshape_as(parameter)
                 parameter.detach_().requires_grad_(False).copy_(
                     new_parameter
                 ).requires_grad_()
                 start_idx = end_idx
+
+    # override
+    def named_parameters(
+        self,
+        *args: "Any",
+        include_all: "bool" = True,
+        **kwargs: "Any",
+    ) -> "Iterator[Tuple[str, Parameter]]":
+        """Return the named parameters.
+
+        Parameters
+        ----------
+        include_all:
+            True to include all the named parameters,
+            False to include only those over which the
+            prior is defined.
+
+        Returns
+        -------
+            The named parameters.
+
+        """
+        if include_all:
+            return super(PriorModule, self).named_parameters(*args, **kwargs)
+        named_parameters = dict(
+            super(PriorModule, self).named_parameters(*args, **kwargs)
+        )
+        result = []
+        for replica in self.replicas:
+            replica_parameters = list(replica.parameters())
+            for idx in self._module_parameter_idxes:
+                for k, v in named_parameters.items():
+                    if v is replica_parameters[idx]:
+                        result.append((k, v))
+                        break
+        return result
+
+    @property
+    def particles(self) -> "Tensor":
+        """Return the particles.
+
+        In the following, let `N` denote the number of particles,
+        and `D` the number of parameters over which the prior is
+        defined.
+
+        Returns
+        -------
+            The particles, shape: ``[N, D]``.
+
+        """
+        result = []
+        for replica in self.replicas:
+            replica_parameters = list(replica.parameters())
+            module_parameters = [
+                replica_parameters[idx] for idx in self._module_parameter_idxes
+            ]
+            for parameter in module_parameters:
+                result.append(parameter.flatten())
+        return torch.cat(result).reshape(self.num_particles, -1)
 
     # override
     def forward(
@@ -177,25 +236,25 @@ class ParticlePosteriorModel(PriorModel):
 
         In the following, let `N` denote the number of particles,
         `B = {B_1, ..., B_k}` the batch shape, and `O = {O_1, ..., O_m}`
-        the shape of a leaf value of the underlying model output (can be
+        the shape of a leaf value of the underlying module output (can be
         a nested tensor).
 
         Parameters
         ----------
         args:
-            The positional arguments to pass to the underlying model.
+            The positional arguments to pass to the underlying module.
         return_log_prior:
             True to additionally return the log prior (usually
             required during training), False otherwise.
         reduction:
             The reduction to apply to the leaf values of the underlying
-            model output and to the log prior (if `return_log_prior` is
+            module output and to the log prior (if `return_log_prior` is
             True) across particles. Must be one of the following:
             - "none": no reduction is applied;
             - "mean": the leaf values and the log prior are averaged
                       across particles.
         kwargs:
-            The keyword arguments to pass to the underlying model.
+            The keyword arguments to pass to the underlying module.
 
         Returns
         -------
@@ -216,7 +275,7 @@ class ParticlePosteriorModel(PriorModel):
             )
 
         # Forward pass
-        outputs = [model(*args, **kwargs) for model in self.models]
+        outputs = [replica(*args, **kwargs) for replica in self.replicas]
         if reduction == "none":
             outputs = nested_apply(torch.stack, outputs)
         elif reduction == "mean":
@@ -228,9 +287,7 @@ class ParticlePosteriorModel(PriorModel):
             return outputs
 
         # Extract particles
-        particles = nn.utils.parameters_to_vector(self.models.parameters()).reshape(
-            self.num_particles, -1
-        )
+        particles = self.particles
 
         # Compute log prior
         log_priors = self.prior.log_prob(particles)
@@ -243,8 +300,8 @@ class ParticlePosteriorModel(PriorModel):
     def __repr__(self) -> "str":
         return (
             f"{type(self).__name__}"
-            f"(model: {self.model}, "
+            f"(module: {self.module}, "
             f"prior: {self.prior}, "
             f"num_particles: {self.num_particles}, "
-            f"model_parameters: {sum(parameter.numel() for parameter in self.model_parameters)})"
+            f"module_parameters: {sum(parameter.numel() for parameter in self.module_parameters)})"
         )

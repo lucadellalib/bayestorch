@@ -16,19 +16,39 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Test finite distribution."""
+"""Test concatenated distribution."""
 
 import pytest
 import torch
-from torch.distributions import kl_divergence
+from torch.distributions import Categorical, Independent, Normal, kl_divergence
 
-from bayestorch.distributions import Finite
+from bayestorch.distributions import CatDistribution
 
 
-def test_finite() -> "None":
+def test_cat_distribution() -> "None":
+    loc = 0.0
+    scale = 1.0
     logits = torch.as_tensor([0.25, 0.15, 0.10, 0.30, 0.20])
-    atoms = torch.as_tensor([5.0, 7.5, 10.0, 12.5, 15.0])
-    distribution = Finite(logits, atoms=atoms)
+    try:
+        _ = CatDistribution([Normal(loc, scale), Categorical(logits)], dim=3)
+        _ = CatDistribution(
+            [
+                Normal(torch.full((2, 3), loc), torch.full((2, 3), scale)),
+                Categorical(logits),
+            ]
+        )
+        _ = CatDistribution(
+            [
+                Independent(
+                    Normal(torch.full((2, 3, 2), loc), torch.full((2, 3, 2), scale)), 2
+                ),
+                Categorical(logits.expand(2, 5)),
+            ],
+            dim=1,
+        )
+    except Exception:
+        pass
+    distribution = CatDistribution([Normal(loc, scale), Categorical(logits)])
     print(distribution)
     print(distribution.expand((2, 3)))
     if distribution.has_rsample:
@@ -40,17 +60,25 @@ def test_finite() -> "None":
     print(f"Standard deviation: {distribution.stddev}")
     print(f"Variance: {distribution.variance}")
     print(f"Log prob: {distribution.log_prob(distribution.sample())}")
-    print(f"CDF: {distribution.cdf(distribution.sample())}")
     print(f"Entropy: {distribution.entropy()}")
     print(f"Support: {distribution.support}")
-    print(f"Enumerated support: {distribution.enumerate_support()}")
     try:
+        print(f"CDF: {distribution.cdf(distribution.sample())}")
+        print(f"Enumerated support: {distribution.enumerate_support()}")
         print(f"Enumerated support: {distribution.enumerate_support(False)}")
     except NotImplementedError:
         pass
     print(
         f"Kullback-Leibler divergence: "
-        f"{kl_divergence(distribution, Finite(atoms, validate_args=True))}"
+        f"{kl_divergence(distribution, CatDistribution([Normal(loc, scale), Categorical(logits)], validate_args=True))}"
+    )
+    print(
+        f"Kullback-Leibler divergence: "
+        f"{kl_divergence(CatDistribution([Normal(loc, scale)]), Normal(loc, scale))}"
+    )
+    print(
+        f"Kullback-Leibler divergence: "
+        f"{kl_divergence(Normal(loc, scale), CatDistribution([Normal(loc, scale)]))}"
     )
 
 

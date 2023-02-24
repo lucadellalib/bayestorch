@@ -16,24 +16,24 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Test variational posterior model."""
+"""Test variational posterior module."""
 
 import pytest
 import torch
 from torch import nn
 
 from bayestorch.distributions import LogScaleNormal, SoftplusInvScaleNormal
-from bayestorch.nn import VariationalPosteriorModel
+from bayestorch.nn import VariationalPosteriorModule
 
 
-def test_variational_posterior_model() -> "None":
+def test_variational_posterior_module() -> "None":
     num_mc_samples = 5
     batch_size = 10
     in_features = 4
     out_features = 2
     model = nn.Linear(in_features, out_features)
     num_parameters = sum(parameter.numel() for parameter in model.parameters())
-    model = VariationalPosteriorModel(
+    model = VariationalPosteriorModule(
         model,
         prior_builder=LogScaleNormal,
         prior_kwargs={
@@ -49,34 +49,60 @@ def test_variational_posterior_model() -> "None":
                 requires_grad=True,
             ),
         },
-    )
+    ).to("cpu")
     input = torch.rand(batch_size, in_features)
-    output = model(
-        input,
-        num_mc_samples=num_mc_samples,
-    )
-    loss = output.sum()
-    loss.backward()
-    outputs, kl_divs = model(
-        input,
-        num_mc_samples=num_mc_samples,
-        return_kl_div=True,
-        reduction="none",
-    )
-    loss = outputs.sum() + kl_divs.sum()
-    loss.backward()
-    with torch.no_grad():
+    for reduction in ["none", "mean"]:
         output = model(
             input,
             num_mc_samples=num_mc_samples,
+            reduction=reduction,
         )
+        loss = output.sum()
+        loss.backward()
         outputs, kl_divs = model(
             input,
             num_mc_samples=num_mc_samples,
             return_kl_div=True,
-            reduction="none",
+            reduction=reduction,
         )
+        loss = outputs.sum() + kl_divs.sum()
+        loss.backward()
+        with torch.no_grad():
+            _ = model(
+                input,
+                num_mc_samples=num_mc_samples,
+                reduction=reduction,
+            )
+            _, _ = model(
+                input,
+                num_mc_samples=num_mc_samples,
+                return_kl_div=True,
+                reduction=reduction,
+            )
+        outputs, kl_divs = model(
+            input,
+            num_mc_samples=num_mc_samples,
+            return_kl_div=True,
+            exact_kl_div=True,
+            reduction=reduction,
+        )
+        loss = outputs.sum() + kl_divs.sum()
+        loss.backward()
+        with torch.no_grad():
+            outputs, kl_divs = model(
+                input,
+                num_mc_samples=num_mc_samples,
+                return_kl_div=True,
+                exact_kl_div=True,
+                reduction=reduction,
+            )
     print(model)
+    print(dict(model.named_parameters()).keys())
+    print(model.parameters())
+    print(dict(model.named_parameters(include_all=False)).keys())
+    print(model.parameters(include_all=False))
+    state_dict = model.state_dict()
+    model.load_state_dict(state_dict)
     print(f"Number of Monte Carlo samples: {num_mc_samples}")
     print(f"Batch size: {batch_size}")
     print(f"Input shape: {(batch_size, in_features)}")

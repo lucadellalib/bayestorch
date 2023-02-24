@@ -36,6 +36,7 @@ from bayestorch.distributions.utils import (
 
 def test_get_deterministic() -> "None":
     model = torch.nn.Linear(4, 2)
+    _, _ = get_deterministic(model.parameters(), 2.0, requires_grad=True)
     builder, kwargs = get_deterministic(model.parameters(), requires_grad=True)
     distribution = builder(**kwargs)
     print(

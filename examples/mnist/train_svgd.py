@@ -14,7 +14,7 @@ from torch.optim.lr_scheduler import StepLR
 
 import math
 from bayestorch.distributions import get_mixture_log_scale_normal
-from bayestorch.nn import ParticlePosteriorModel
+from bayestorch.nn import ParticlePosteriorModule
 from bayestorch.optim import SVGD
 
 
@@ -175,10 +175,10 @@ def main():
     )
 
     # Bayesian model
-    model = ParticlePosteriorModel(model, prior_builder, prior_kwargs, args.num_particles).to(device)
+    model = ParticlePosteriorModule(model, prior_builder, prior_kwargs, args.num_particles).to(device)
 
     # SVGD preconditioner
-    preconditioner = SVGD(model.parameters(), rbf_kernel, args.num_particles)
+    preconditioner = SVGD(model.parameters(include_all=False), rbf_kernel, args.num_particles)
 
     optimizer = optim.Adadelta(model.parameters(), lr=args.lr)
 

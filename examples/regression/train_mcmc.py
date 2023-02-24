@@ -10,8 +10,10 @@ from itertools import count
 import torch
 import torch.nn.functional as F
 
+import copy
+from collections import deque
 from bayestorch.distributions import get_log_scale_normal
-from bayestorch.nn import PriorModel
+from bayestorch.nn import PriorModule
 from bayestorch.optim import SGLD
 
 POLY_DEGREE = 4
@@ -57,7 +59,7 @@ fc = torch.nn.Linear(W_target.size(0), 1)
 prior_builder, prior_kwargs = get_log_scale_normal(fc.parameters(), 0.0, -1.0)
 
 # Bayesian model
-fc = PriorModel(fc, prior_builder, prior_kwargs)
+fc = PriorModule(fc, prior_builder, prior_kwargs)
 
 # Optimizer
 optimizer = SGLD(
@@ -66,6 +68,9 @@ optimizer = SGLD(
     num_burn_in_steps=200,
     precondition_decay_rate=0.95,
 )
+
+# Keep track of the last 10 models
+models = deque(maxlen=10)
 
 for batch_idx in count(1):
     # Get data
@@ -87,6 +92,9 @@ for batch_idx in count(1):
     # Optimizer step
     optimizer.step()
 
+    # Save model
+    models.append(copy.deepcopy(fc.module))
+
     # Apply gradients
     #for param in fc.parameters():
     #    param.data.add_(-0.1 * param.grad)
@@ -96,5 +104,14 @@ for batch_idx in count(1):
         break
 
 print('Loss: {:.6f} after {} batches'.format(loss, batch_idx))
-print('==> Learned function:\t' + poly_desc(fc.model.weight.view(-1), fc.model.bias))
-print('==> Actual function:\t' + poly_desc(W_target.view(-1), b_target))
+#print('==> Learned function:\t' + poly_desc(fc.weight.view(-1), fc.bias))
+#print('==> Actual function:\t' + poly_desc(W_target.view(-1), b_target))
+print('==> Learned function mean:              \t' + poly_desc(
+    torch.stack([model.weight.view(-1) for model in models]).mean(dim=0),
+    torch.stack([model.bias for model in models]).mean(dim=0),
+))
+print('==> Learned function standard deviation:\t' + poly_desc(
+    torch.stack([model.weight.view(-1) for model in models]).std(dim=0),
+    torch.stack([model.bias for model in models]).std(dim=0),
+))
+print('==> Actual function:                    \t' + poly_desc(W_target.view(-1), b_target))

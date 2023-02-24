@@ -12,7 +12,7 @@ from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 
 from bayestorch.distributions import get_mixture_log_scale_normal
-from bayestorch.nn import PriorModel
+from bayestorch.nn import PriorModule
 from bayestorch.optim import SGLD
 
 
@@ -162,7 +162,7 @@ def main():
     )
 
     # Bayesian model
-    model = PriorModel(model, prior_builder, prior_kwargs).to(device)
+    model = PriorModule(model, prior_builder, prior_kwargs).to(device)
 
     optimizer = SGLD(
         model.parameters(),

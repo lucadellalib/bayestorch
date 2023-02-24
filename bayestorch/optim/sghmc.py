@@ -150,13 +150,13 @@ class SGHMC(Optimizer):
                 grad_noise = group["grad_noise"]
                 epsilon = group["epsilon"]
 
+                state["iteration"] += 1
                 iteration = state["iteration"]
                 tau = state["tau"]
                 g = state["g"]
                 v_hat = state["v_hat"]
                 momentum = state["momentum"]
 
-                iteration += 1
                 grad = param.grad
                 r = 1.0 / (tau + 1.0)
                 m_inv = 1.0 / v_hat.sqrt()

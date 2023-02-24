@@ -22,13 +22,13 @@ from torch.distributions import constraints
 
 
 __all__ = [
-    "concatenation",
+    "cat",
     "ordered_real_vector",
     "real_set",
 ]
 
 
-class _Concatenation(constraints.cat):
+class _Cat(constraints.cat):
     """Extended version of `torch.distributions.constraints.cat`
     that implements `is_discrete` and `check` correctly.
 
@@ -37,10 +37,10 @@ class _Concatenation(constraints.cat):
     >>> import torch
     >>> from torch.distributions.constraints import independent, positive, real
     >>>
-    >>> from bayestorch.distributions.constraints import concatenation
+    >>> from bayestorch.distributions.constraints import cat
     >>>
     >>>
-    >>> constraint = concatenation([independent(real, 1), independent(positive, 1)], lengths=(2, 1))
+    >>> constraint = cat([independent(real, 1), independent(positive, 1)], lengths=(2, 1))
     >>> check = constraint.check(torch.as_tensor([-0.2, -0.5, 2.3]))
 
     """
@@ -145,6 +145,6 @@ class _RealSet(constraints.Constraint):
 
 
 # Public interface
-concatenation = _Concatenation
+cat = _Cat
 ordered_real_vector = _OrderedRealVector()
 real_set = _RealSet

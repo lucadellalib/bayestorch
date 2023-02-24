@@ -16,7 +16,7 @@
 
 """Distributions."""
 
-from bayestorch.distributions.concatenated import *
+from bayestorch.distributions.cat_distribution import *
 from bayestorch.distributions.constraints import *
 from bayestorch.distributions.deterministic import *
 from bayestorch.distributions.finite import *

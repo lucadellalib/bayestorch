@@ -21,17 +21,17 @@ from typing import List, Optional, Sequence
 import torch
 from torch import Size, Tensor
 from torch.distributions import Distribution, kl_divergence, register_kl
-from torch.distributions.constraints import Constraint, independent
+from torch.distributions.constraints import independent
 
-from bayestorch.distributions.constraints import concatenation
+from bayestorch.distributions.constraints import cat
 
 
 __all__ = [
-    "Concatenated",
+    "CatDistribution",
 ]
 
 
-class Concatenated(Distribution):
+class CatDistribution(Distribution):
     """Concatenate a sequence of base distributions with identical
     batch shapes along one of their event dimensions.
 
@@ -39,13 +39,13 @@ class Concatenated(Distribution):
     --------
     >>> from torch.distributions import Categorical, Normal
     >>>
-    >>> from bayestorch.distributions import Concatenated
+    >>> from bayestorch.distributions import CatDistribution
     >>>
     >>>
     >>> loc = 0.0
     >>> scale = 1.0
     >>> logits = torch.as_tensor([0.25, 0.15, 0.10, 0.30, 0.20])
-    >>> distribution = Concatenated([Normal(loc, scale), Categorical(logits)])
+    >>> distribution = CatDistribution([Normal(loc, scale), Categorical(logits)])
 
     """
 
@@ -114,9 +114,22 @@ class Concatenated(Distribution):
         super().__init__(batch_shape, torch.Size(event_shape), validate_args)
 
     # override
+    def expand(
+        self,
+        batch_shape: "Size" = Size(),  # noqa: B008
+        _instance: "Optional[CatDistribution]" = None,
+    ) -> "CatDistribution":
+        new = self._get_checked_instance(CatDistribution, _instance)
+        new.base_dists = [d.expand(batch_shape) for d in self.base_dists]
+        new.dim = self.dim
+        super(CatDistribution, new).__init__(batch_shape, self.event_shape, False)
+        new._validate_args = self._validate_args
+        return new
+
+    # override
     @property
-    def support(self) -> "Constraint":
-        return concatenation(
+    def support(self) -> "cat":
+        return cat(
             [
                 independent(d.support, len(self.event_shape) - len(d.event_shape))
                 for d in self.base_dists
@@ -162,6 +175,7 @@ class Concatenated(Distribution):
         )
 
     # override
+    @property
     def has_rsample(self) -> "bool":
         return all(d.has_rsample for d in self.base_dists)
 
@@ -181,8 +195,10 @@ class Concatenated(Distribution):
         chunks = input.split(split_sizes, dim=self.dim - len(self.event_shape))
         return [
             chunk.reshape(
-                *input.shape[: input.ndim - len(self.event_shape)],
-                *d.event_shape,
+                (
+                    *input.shape[: input.ndim - len(self.event_shape)],
+                    *d.event_shape,
+                )
             )
             for chunk, d in zip(chunks, self.base_dists)
         ]
@@ -192,8 +208,8 @@ class Concatenated(Distribution):
         return f"{type(self).__name__}({self.base_dists}, dim: {self.dim})"
 
 
-@register_kl(Concatenated, Concatenated)
-def _kl_concatenated_concatenated(p: "Concatenated", q: "Concatenated") -> "Tensor":
+@register_kl(CatDistribution, CatDistribution)
+def _kl_cat_cat(p: "CatDistribution", q: "CatDistribution") -> "Tensor":
     if (p.dim != q.dim) or (len(p.base_dists) != len(q.base_dists)):
         raise NotImplementedError
     return torch.stack(
@@ -201,15 +217,15 @@ def _kl_concatenated_concatenated(p: "Concatenated", q: "Concatenated") -> "Tens
     ).sum(dim=0)
 
 
-@register_kl(Concatenated, Distribution)
-def _kl_concatenated_distribution(p: "Concatenated", q: "Distribution") -> "Tensor":
+@register_kl(CatDistribution, Distribution)
+def _kl_cat_distribution(p: "CatDistribution", q: "Distribution") -> "Tensor":
     if len(p.base_dists) > 1:
         raise NotImplementedError
     return kl_divergence(p.base_dists[0], q)
 
 
-@register_kl(Distribution, Concatenated)
-def _kl_distribution_concatenated(p: "Distribution", q: "Concatenated") -> "Tensor":
+@register_kl(Distribution, CatDistribution)
+def _kl_distribution_cat(p: "Distribution", q: "CatDistribution") -> "Tensor":
     if len(q.base_dists) > 1:
         raise NotImplementedError
     return kl_divergence(p, q.base_dists[0])

@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 
 from bayestorch.distributions import get_log_scale_normal, get_softplus_inv_scale_normal
-from bayestorch.nn import VariationalPosteriorModel
+from bayestorch.nn import VariationalPosteriorModule
 
 POLY_DEGREE = 4
 W_target = torch.randn(POLY_DEGREE, 1) * 5
@@ -62,7 +62,7 @@ prior_builder, prior_kwargs = get_log_scale_normal(fc.parameters(), 0.0, -1.0)
 posterior_builder, posterior_kwargs = get_softplus_inv_scale_normal(fc.parameters(), 0.0, -7.0, requires_grad=True)
 
 # Bayesian model
-fc = VariationalPosteriorModel(fc, prior_builder, prior_kwargs, posterior_builder, posterior_kwargs)
+fc = VariationalPosteriorModule(fc, prior_builder, prior_kwargs, posterior_builder, posterior_kwargs)
 
 for batch_idx in count(1):
     # Get data

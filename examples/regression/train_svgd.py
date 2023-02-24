@@ -12,7 +12,7 @@ import torch.nn.functional as F
 
 import math
 from bayestorch.distributions import get_log_scale_normal
-from bayestorch.nn import ParticlePosteriorModel
+from bayestorch.nn import ParticlePosteriorModule
 from bayestorch.optim import SVGD
 
 POLY_DEGREE = 4
@@ -73,10 +73,10 @@ fc = torch.nn.Linear(W_target.size(0), 1)
 prior_builder, prior_kwargs = get_log_scale_normal(fc.parameters(), 0.0, -1.0)
 
 # Bayesian model
-fc = ParticlePosteriorModel(fc, prior_builder, prior_kwargs, num_particles)
+fc = ParticlePosteriorModule(fc, prior_builder, prior_kwargs, num_particles)
 
 # SVGD preconditioner
-preconditioner = SVGD(fc.parameters(), rbf_kernel, num_particles)
+preconditioner = SVGD(fc.parameters(include_all=False), rbf_kernel, num_particles)
 
 for batch_idx in count(1):
     # Get data
@@ -110,11 +110,11 @@ print('Loss: {:.6f} after {} batches'.format(loss, batch_idx))
 #print('==> Learned function:\t' + poly_desc(fc.weight.view(-1), fc.bias))
 #print('==> Actual function:\t' + poly_desc(W_target.view(-1), b_target))
 print('==> Learned function mean:              \t' + poly_desc(
-    torch.stack([model.weight.view(-1) for model in fc.models]).mean(dim=0),
-    torch.stack([model.bias for model in fc.models]).mean(dim=0),
+    torch.stack([replica.weight.view(-1) for replica in fc.replicas]).mean(dim=0),
+    torch.stack([replica.bias for replica in fc.replicas]).mean(dim=0),
 ))
 print('==> Learned function standard deviation:\t' + poly_desc(
-    torch.stack([model.weight.view(-1) for model in fc.models]).std(dim=0),
-    torch.stack([model.bias for model in fc.models]).std(dim=0),
+    torch.stack([replica.weight.view(-1) for replica in fc.replicas]).std(dim=0),
+    torch.stack([replica.bias for replica in fc.replicas]).std(dim=0),
 ))
 print('==> Actual function:                    \t' + poly_desc(W_target.view(-1), b_target))

@@ -91,8 +91,10 @@ class SVGD(Optimizer):
             The parameters to precondition. The total number of
             parameters must be a multiple of `num_particles`.
         kernel:
-            The kernel, i.e. a callable that receives as an argument the
-            particles and returns the corresponding kernels.
+            The kernel, i.e. a callable that receives two input
+            tensors and returns the corresponding kernel values
+            (must be differentiable with respect to both input
+            tensors).
         num_particles:
             The number of particles.
 
@@ -102,29 +104,25 @@ class SVGD(Optimizer):
             If an invalid argument value is given.
 
         """
-        self.kernel = kernel
-        self.num_particles = num_particles = int(num_particles)
-        super().__init__(params, {"kernel": kernel, "num_particles": num_particles})
+        if num_particles < 1 or not float(num_particles).is_integer():
+            raise ValueError(
+                f"`num_particles` ({num_particles}) must be in the integer interval [1, inf)"
+            )
+        num_particles = int(num_particles)
+        params = list(params)
 
-        # Check consistency between number of parameters
-        # and number of particles for each group
-        for group in self.param_groups:
-            params = group["params"]
-            num_particles = group["num_particles"]
-
-            if num_particles < 1 or not float(num_particles).is_integer():
-                raise ValueError(
-                    f"`num_particles` ({num_particles}) must be in the integer interval [1, inf)"
-                )
-
-            # Extract particles
+        # Extract particles
+        with torch.no_grad():
             particles = nn.utils.parameters_to_vector(params)
 
-            if particles.numel() % num_particles != 0:
-                raise ValueError(
-                    f"Total number of parameters ({particles.numel()}) must "
-                    f"be a multiple of `num_particles` ({num_particles})"
-                )
+        if particles.numel() % num_particles != 0:
+            raise ValueError(
+                f"Total number of parameters ({particles.numel()}) must "
+                f"be a multiple of `num_particles` ({num_particles})"
+            )
+
+        defaults = {"kernel": kernel, "num_particles": num_particles}
+        super().__init__(params, defaults)
 
     # override
     @torch.no_grad()

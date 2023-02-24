@@ -16,7 +16,7 @@
 
 """Neural networks."""
 
-from bayestorch.nn.particle_posterior_model import *
-from bayestorch.nn.prior_model import *
+from bayestorch.nn.particle_posterior_module import *
+from bayestorch.nn.prior_module import *
 from bayestorch.nn.utils import *
-from bayestorch.nn.variational_posterior_model import *
+from bayestorch.nn.variational_posterior_module import *

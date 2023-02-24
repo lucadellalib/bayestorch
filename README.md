@@ -55,8 +55,8 @@ pip install -e .
 
 ## ▶️ Quickstart
 
-Here are a few code snippets showcasing some of the key features of the library.
-For complete training loops, refer to `examples/mnist` and `examples/regression`.
+Here are a few code snippets showcasing some key features of the library.
+For complete training loops, please refer to `examples/mnist` and `examples/regression`.
 
 ### Bayesian model trainable via Bayes by Backprop
 
@@ -67,7 +67,7 @@ from bayestorch.distributions import (
     get_mixture_log_scale_normal,
     get_softplus_inv_scale_normal,
 )
-from bayestorch.nn import VariationalPosteriorModel
+from bayestorch.nn import VariationalPosteriorModule
 
 
 # Define model
@@ -87,7 +87,7 @@ posterior_builder, posterior_kwargs = get_softplus_inv_scale_normal(
 )
 
 # Define Bayesian model trainable via Bayes by Backprop
-model = VariationalPosteriorModel(
+model = VariationalPosteriorModule(
     model, prior_builder, prior_kwargs, posterior_builder, posterior_kwargs
 )
 ```
@@ -101,7 +101,7 @@ from bayestorch.distributions import (
     get_mixture_log_scale_normal,
     get_softplus_inv_scale_normal,
 )
-from bayestorch.nn import VariationalPosteriorModel
+from bayestorch.nn import VariationalPosteriorModule
 
 
 # Define model
@@ -121,7 +121,7 @@ posterior_builder, posterior_kwargs = get_softplus_inv_scale_normal(
 )
 
 # Define partially Bayesian model trainable via Bayes by Backprop
-model = VariationalPosteriorModel(
+model = VariationalPosteriorModule(
     model, prior_builder, prior_kwargs,
     posterior_builder, posterior_kwargs, [model.weight],
 )
@@ -134,12 +134,12 @@ from torch.distributions import Independent
 from torch.nn import Linear
 
 from bayestorch.distributions import (
-    Concatenated,
+    CatDistribution,
     get_laplace,
     get_normal,
     get_softplus_inv_scale_normal,
 )
-from bayestorch.nn import VariationalPosteriorModel
+from bayestorch.nn import VariationalPosteriorModule
 
 
 # Define model
@@ -163,7 +163,7 @@ bias_prior_builder, bias_prior_kwargs = get_laplace(
 
 # Define composite prior over the model parameters
 prior_builder = (
-    lambda **kwargs: Concatenated([
+    lambda **kwargs: CatDistribution([
         Independent(weight_prior_builder(**kwargs), 1),
         Independent(bias_prior_builder(**kwargs), 1),
     ])
@@ -176,7 +176,7 @@ posterior_builder, posterior_kwargs = get_softplus_inv_scale_normal(
 )
 
 # Define Bayesian model trainable via Bayes by Backprop
-model = VariationalPosteriorModel(
+model = VariationalPosteriorModule(
     model, prior_builder, prior_kwargs, posterior_builder, posterior_kwargs,
 )
 ```

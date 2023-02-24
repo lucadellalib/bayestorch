@@ -14,9 +14,19 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Prior model."""
+"""Prior module."""
 
-from typing import Any, Callable, Dict, Iterable, Optional, Tuple, TypeVar, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 from torch import Tensor, nn
 from torch.distributions import Distribution, Independent
@@ -24,15 +34,15 @@ from torch.nn import Module, Parameter
 
 
 __all__ = [
-    "PriorModel",
+    "PriorModule",
 ]
 
 
-_T = TypeVar("_T", bound="PriorModel")
+_T = TypeVar("_T", bound="PriorModule")
 
 
-class PriorModel(Module):
-    """Bayesian model that defines a prior over its parameters.
+class PriorModule(Module):
+    """Bayesian module that defines a prior over its parameters.
 
     Examples
     --------
@@ -40,7 +50,7 @@ class PriorModel(Module):
     >>> from torch import nn
     >>>
     >>> from bayestorch.distributions import LogScaleNormal
-    >>> from bayestorch.nn import PriorModel
+    >>> from bayestorch.nn import PriorModule
     >>>
     >>>
     >>> batch_size = 10
@@ -48,7 +58,7 @@ class PriorModel(Module):
     >>> out_features = 2
     >>> model = nn.Linear(in_features, out_features)
     >>> num_parameters = sum(parameter.numel() for parameter in model.parameters())
-    >>> model = PriorModel(
+    >>> model = PriorModule(
     ...     model,
     ...     prior_builder=LogScaleNormal,
     ...     prior_kwargs={
@@ -67,32 +77,32 @@ class PriorModel(Module):
     # override
     def __init__(
         self,
-        model: "Module",
+        module: "Module",
         prior_builder: "Callable[..., Distribution]",
         prior_kwargs: "Dict[str, Any]",
-        model_parameters: "Optional[Iterable[Tensor]]" = None,
+        module_parameters: "Optional[Iterable[Tensor]]" = None,
     ) -> "None":
         """Initialize the object.
 
         Parameters
         ----------
-        model:
-            The model.
+        module:
+            The module.
         prior_builder:
             The prior builder, i.e. a callable that receives keyword
             arguments and returns a prior with size (batch + event)
             equal to the length of the 1D tensor obtained by flattening
-            and concatenating each tensor in `model_parameters`.
+            and concatenating each tensor in `module_parameters`.
         prior_kwargs:
             The keyword arguments to pass to the prior builder.
             Tensor arguments are internally registered as parameters
             if their `requires_grad` attribute is True, as persistent
             buffers otherwise.
-        model_parameters:
-            The model parameters over which the prior is defined.
+        module_parameters:
+            The module parameters over which the prior is defined.
             Useful to selectively define a prior over a restricted
-            subset of modules/parameters.
-            Default to ``model.parameters()``.
+            subset of submodules/parameters.
+            Default to ``module.parameters()``.
 
         Raises
         ------
@@ -101,33 +111,59 @@ class PriorModel(Module):
 
         """
         super().__init__()
-        self.model = model
+        self.module = module
         self.prior_builder = prior_builder
         self.prior_kwargs = prior_kwargs = {
             k: v for k, v in prior_kwargs.items()
         }  # Avoid side effects
-        self.model_parameters = model_parameters = list(
-            model_parameters or model.parameters()
+        self.module_parameters = module_parameters = list(
+            module_parameters or module.parameters()
         )
-        if not set(model_parameters).issubset(set(model.parameters())):
+        if not set(module_parameters).issubset(set(module.parameters())):
             raise ValueError(
-                f"`model_parameters` ({model_parameters}) must be a subset of `model.parameters()` ({model.parameters()})"
+                f"`module_parameters` ({module_parameters}) must be a subset of `module.parameters()` ({module.parameters()})"
             )
 
         # Build prior
         self.prior = self._build_distribution("prior", prior_builder, prior_kwargs)
 
     # override
-    def to(self, *args: "Any", **kwargs: "Any") -> "_T":
-        self.model.to(*args, **kwargs)
-        super().to(*args, **kwargs)
+    def named_parameters(
+        self,
+        *args: "Any",
+        include_all: "bool" = True,
+        **kwargs: "Any",
+    ) -> "Iterator[Tuple[str, Parameter]]":
+        """Return the named parameters.
 
-        # Rebuild prior with parameters on new device
-        self.prior = self._build_distribution(
-            "prior", self.prior_builder, self.prior_kwargs
+        Parameters
+        ----------
+        include_all:
+            True to include all the named parameters,
+            False to include only those over which the
+            prior is defined.
+
+        Returns
+        -------
+            The named parameters.
+
+        """
+        if include_all:
+            return super().named_parameters(*args, **kwargs)
+        return (
+            (k, v)
+            for k, v in super().named_parameters(*args, **kwargs)
+            if any(v is parameter for parameter in self.module_parameters)
         )
 
-        return self
+    # override
+    def parameters(
+        self,
+        *args: "Any",
+        **kwargs: "Any",
+    ) -> "Iterator[Parameter]":
+        for _, parameter in self.named_parameters(*args, **kwargs):
+            yield parameter
 
     # override
     def forward(
@@ -137,18 +173,18 @@ class PriorModel(Module):
 
         In the following, let `B = {B_1, ..., B_k}` denote the
         batch shape and `O = {O_1, ..., O_m}` the shape of a
-        leaf value of the underlying model output (can be a
+        leaf value of the underlying module output (can be a
         nested tensor).
 
         Parameters
         ----------
         args:
-            The positional arguments to pass to the underlying model.
+            The positional arguments to pass to the underlying module.
         return_log_prior:
             True to additionally return the log prior (usually
             required during training), False otherwise.
         kwargs:
-            The keyword arguments to pass to the underlying model.
+            The keyword arguments to pass to the underlying module.
 
         Returns
         -------
@@ -157,18 +193,31 @@ class PriorModel(Module):
 
         """
         # Forward pass
-        output = self.model(*args, **kwargs)
+        output = self.module(*args, **kwargs)
 
         if not return_log_prior:
             return output
 
         # Extract particle
-        particle = nn.utils.parameters_to_vector(self.model_parameters)
+        particle = nn.utils.parameters_to_vector(self.module_parameters)
 
         # Compute log prior
         log_prior = self.prior.log_prob(particle)
 
         return output, log_prior
+
+    # override
+    def _apply(self, *args: "Any", **kwargs: "Any") -> "_T":
+        super()._apply(*args, **kwargs)
+
+        # Rebuild prior using updated parameters/buffers
+        # (`_apply` might create copies of parameters/buffers,
+        # therefore references within the prior are lost)
+        self.prior = self._build_distribution(
+            "prior", self.prior_builder, self.prior_kwargs
+        )
+
+        return self
 
     def _build_distribution(
         self,
@@ -177,8 +226,8 @@ class PriorModel(Module):
         distribution_kwargs: "Dict[str, Any]",
     ) -> "Distribution":
         # Extract particle
-        # particle = model parameters flattened into a 1D vector
-        particle = nn.utils.parameters_to_vector(self.model_parameters)
+        # particle = module parameters flattened into a 1D vector
+        particle = nn.utils.parameters_to_vector(self.module_parameters)
 
         # Build distribution
         for k, v in distribution_kwargs.items():
@@ -203,7 +252,7 @@ class PriorModel(Module):
         if event_shape != (1,) and event_shape != particle.shape:
             raise ValueError(
                 f"{name.capitalize()} size (batch + event) ({event_shape.numel()}) "
-                f"must be equal to the number of model parameters ({particle.numel()})"
+                f"must be equal to the number of module parameters ({particle.numel()})"
             )
 
         return distribution
@@ -220,7 +269,7 @@ class PriorModel(Module):
     def __repr__(self) -> "str":
         return (
             f"{type(self).__name__}"
-            f"(model: {self.model}, "
+            f"(module: {self.module}, "
             f"prior: {self.prior}, "
-            f"model_parameters: {sum(parameter.numel() for parameter in self.model_parameters)})"
+            f"module_parameters: {sum(parameter.numel() for parameter in self.module_parameters)})"
         )

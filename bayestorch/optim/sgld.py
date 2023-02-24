@@ -33,7 +33,7 @@ __all__ = [
 class SGLD(Optimizer):
     """Stochastic gradient Langevin dynamics optimizer.
 
-    The optimization parameters are viewed as a posterior
+    The optimization parameters are interpreted as a posterior
     sample under stochastic gradient Langevin dynamics with
     noise rescaled in each dimension according to RMSProp.
 
@@ -83,10 +83,9 @@ class SGLD(Optimizer):
         lr:
             The learning rate.
         num_burn_in_steps:
-            The number of steps for which gradient
-            statistics are collected to update the
-            preconditioner before starting to draw
-            noisy samples.
+            The number of steps for which gradient statistics
+            are collected to update the preconditioner before
+            drawing noisy samples.
         precondition_decay_rate:
             The exponential decay rate for rescaling the
             preconditioner according to RMSProp. Should
@@ -142,10 +141,10 @@ class SGLD(Optimizer):
                 precondition_decay_rate = group["precondition_decay_rate"]
                 epsilon = group["epsilon"]
 
+                state["iteration"] += 1
                 iteration = state["iteration"]
                 momentum = state["momentum"]
 
-                iteration += 1
                 grad = param.grad
 
                 # Momentum update
